@@ -100,6 +100,7 @@ export interface TerrainSessionState {
   showObjects: boolean;
   brightness: number;
   objectDistance: number;
+  performanceMode: boolean;
 }
 
 export interface BmdSessionState {

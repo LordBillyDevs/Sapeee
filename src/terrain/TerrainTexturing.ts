@@ -362,6 +362,53 @@ export async function createTerrainAtlasGeometryMesh(
     return baseMesh;
 }
 
+/** Refreshes the tile geometry after MAP edits without reloading the world. */
+export function updateTerrainAtlasGeometryMesh(
+    mesh: THREE.Mesh,
+    sourceGeometry: THREE.BufferGeometry,
+    attributes: TerrainAttributeData,
+    atlas: TerrainAtlas,
+    mapping: TerrainMappingData,
+    useLightmap: boolean,
+): void {
+    const baseGeometry = createTerrainAtlasLayerGeometry(sourceGeometry, attributes, atlas, mapping, 'layer1', useLightmap);
+    mesh.geometry.dispose();
+    mesh.geometry = baseGeometry;
+
+    const overlay = mesh.children.find(child => child.name === 'terrain_overlay') as THREE.Mesh | undefined;
+    const overlayGeometry = createTerrainAtlasLayerGeometry(sourceGeometry, attributes, atlas, mapping, 'layer2', useLightmap);
+    const hasOverlay = overlayGeometry.getAttribute('position')?.count > 0;
+    if (hasOverlay) {
+        if (overlay) {
+            overlay.geometry.dispose();
+            overlay.geometry = overlayGeometry;
+        } else {
+            const overlayMaterial = new THREE.MeshBasicMaterial({
+                map: atlas.texture,
+                side: THREE.FrontSide,
+                transparent: true,
+                depthWrite: false,
+            });
+            overlayMaterial.toneMapped = false;
+            const nextOverlay = new THREE.Mesh(overlayGeometry, overlayMaterial);
+            nextOverlay.name = 'terrain_overlay';
+            nextOverlay.renderOrder = 1;
+            mesh.add(nextOverlay);
+        }
+    } else {
+        overlayGeometry.dispose();
+        if (overlay) {
+            mesh.remove(overlay);
+            if (Array.isArray(overlay.material)) {
+                overlay.material.forEach(material => material.dispose());
+            } else {
+                overlay.material.dispose();
+            }
+            overlay.geometry.dispose();
+        }
+    }
+}
+
 async function createTerrainAtlasGeometryMaterial(map: THREE.Texture, transparent: boolean): Promise<THREE.MeshBasicMaterial> {
     const material = new THREE.MeshBasicMaterial({
         map,

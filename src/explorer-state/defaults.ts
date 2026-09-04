@@ -56,6 +56,7 @@ export function createDefaultTerrainSessionState(): TerrainSessionState {
     showObjects: true,
     brightness: 1.5,
     objectDistance: 6000,
+    performanceMode: false,
   };
 }
 
@@ -78,7 +79,7 @@ export function createDefaultBmdSessionState(): BmdSessionState {
 export function createDefaultViewerSessionState(): ViewerSessionState {
   return {
     version: STATE_VERSION,
-    activeView: 'bmd',
+    activeView: 'terrain',
     presentationMode: false,
     bookmarks: [],
     recentWorlds: [],

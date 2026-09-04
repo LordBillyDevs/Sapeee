@@ -139,7 +139,9 @@ export function initExplorerShell({
         const state = explorerStore.getState();
         const parts: string[] = [];
         if (state.activeView === 'terrain') {
-            const worldLabel = state.terrain.lastWorldNumber !== null ? `World ${state.terrain.lastWorldNumber}` : 'World Viewer';
+            const worldLabel = state.terrain.lastWorldNumber !== null
+                ? `${terrainScene.getFriendlyWorldName(state.terrain.lastWorldNumber)} (World ${state.terrain.lastWorldNumber})`
+                : 'World Viewer';
             parts.push(worldLabel);
             if (state.terrain.selectedObject?.displayName) {
                 parts.push(state.terrain.selectedObject.displayName);
@@ -223,7 +225,7 @@ export function initExplorerShell({
         worldNumbers.forEach(worldNumber => {
             const option = document.createElement('option');
             option.value = `${worldNumber}`;
-            option.textContent = `World ${worldNumber}`;
+            option.textContent = `${terrainScene.getFriendlyWorldName(worldNumber)} (World ${worldNumber})`;
             if (selectedWorldNumber === worldNumber) {
                 option.selected = true;
             }
@@ -290,7 +292,7 @@ export function initExplorerShell({
                 return a - b;
             })
             .filter(worldNumber => matchesExplorerSearch(
-                `World ${worldNumber}`,
+                terrainScene.getFriendlyWorldName(worldNumber),
                 recentWorldLookup.get(worldNumber)?.entry ? `recent ${formatRelativeTime(recentWorldLookup.get(worldNumber)!.entry.timestamp)}` : '',
             ));
 
@@ -312,8 +314,8 @@ export function initExplorerShell({
                 const item = document.createElement('div');
                 item.className = 'explorer-item';
                 const metaText = recentEntry
-                    ? `World ${bookmark.worldNumber} • Recent ${formatRelativeTime(recentEntry.timestamp)}`
-                    : `World ${bookmark.worldNumber}`;
+                    ? `${terrainScene.getFriendlyWorldName(bookmark.worldNumber)} • World ${bookmark.worldNumber} • Recent ${formatRelativeTime(recentEntry.timestamp)}`
+                    : `${terrainScene.getFriendlyWorldName(bookmark.worldNumber)} • World ${bookmark.worldNumber}`;
                 item.appendChild(createExplorerLabel(bookmark.name, metaText));
                 item.appendChild(createActionButton('Open', () => { void openBookmark(bookmark); }));
                 item.appendChild(createActionButton('Rename', () => {
@@ -405,7 +407,7 @@ export function initExplorerShell({
     terrainScene.onWorldLoaded = (worldNumber) => {
         explorerStore.pushRecentWorld({
             worldNumber,
-            label: `World ${worldNumber}`,
+            label: `${terrainScene.getFriendlyWorldName(worldNumber)} (World ${worldNumber})`,
             timestamp: Date.now(),
         });
         explorerStore.setTerrainState(terrainScene.getCurrentState());
@@ -456,7 +458,10 @@ export function initExplorerShell({
     characterScene.restoreSessionState(initialState.character);
     terrainScene.restoreSessionState(initialState.terrain);
     syncPresentationMode(initialState.presentationMode);
-    switchToView(initialState.activeView);
+    // The map editor is the primary workspace. Legacy viewers remain available
+    // to internal actions (for example opening a selected BMD) but never become
+    // the startup destination or a direct navigation module.
+    switchToView('terrain');
     renderExplorer();
 }
 

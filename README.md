@@ -10,7 +10,7 @@ A focused MU Online terrain and map editor built with TypeScript, Three.js, and 
 
 - **Model Viewer**: Load and inspect `.bmd` 3D models with drag-and-drop support. Browse entire folders of models with auto-generated thumbnails. Automatic texture search in Electron.
 - **Character Viewer**: Preview character models with customizable equipment (helm, armor, pants, gloves, boots, left/right hand weapons, wings), item effects (level +0 to +15, Excellent, Ancient), 15+ character classes across all tiers, animation control, and presets.
-- **World/Terrain Viewer**: Load and explore MU Online world terrain with interactive camera, object selection with transform gizmo (move/rotate), object isolation, object overrides (persisted to JSON), minimap navigation, bookmarks, and OBJ export.
+- **World/Terrain Editor**: The primary workspace for loading, navigating, and editing MU Online maps with an interactive camera, object transform gizmo, minimap navigation, bookmarks, and OBJ/MAP export.
 
 ### Data Browsers
 
@@ -58,10 +58,13 @@ A focused MU Online terrain and map editor built with TypeScript, Three.js, and 
 - Bookmarks (save/restore camera positions).
 - Export world geometry as OBJ.
 - Edit base texture, overlay texture, and blend alpha per terrain tile.
+- Import map texture files or texture packages, choose from a thumbnail palette, and paint a texture across tiles with an adjustable brush.
 - Select objects manually from a world object list.
 - Export edited MAP and OBJ files into a client-compatible `WorldN` folder.
 - Terrain object overrides persisted to `terrain-object-overrides.json`.
 - Wireframe, animations, sun light, and object draw-distance controls.
+
+The model, character, ATT, item, skill, GFx, and sound implementations remain available internally for compatibility and focused actions, but are not direct navigation modules in the map editor shell.
 
 ### Additional Features
 

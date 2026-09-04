@@ -91,6 +91,7 @@ function mergeTerrainSessionState(raw: unknown): TerrainSessionState {
     showObjects: coerceBoolean(input.showObjects, defaults.showObjects),
     brightness: coerceNumber(input.brightness, defaults.brightness),
     objectDistance: coerceNumber(input.objectDistance, defaults.objectDistance),
+    performanceMode: coerceBoolean(input.performanceMode, defaults.performanceMode),
   };
 }
 

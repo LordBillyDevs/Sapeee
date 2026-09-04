@@ -52,13 +52,16 @@ import './style.css';
 import './styles/log.css';
 import './styles/panels.css';
 import { initPanels } from './panel-resize';
+import { createTexturePackage, readTexturePackage } from './utils/TexturePackage';
+import { initLanguageSelector } from './i18n';
+import { loadMapAttributes } from './map-attributes';
 
 initPanels();
 
 // == View ==
 let skeletonHelper: THREE.SkeletonHelper | null = null;
-const showSkeletonEl = document.getElementById('show-skeleton-checkbox') as HTMLInputElement;
-const wireframeEl    = document.getElementById('wireframe-checkbox')    as HTMLInputElement;
+const showSkeletonEl = (document.getElementById('show-skeleton-checkbox') || document.createElement('input')) as HTMLInputElement;
+const wireframeEl    = (document.getElementById('wireframe-checkbox') || document.createElement('input')) as HTMLInputElement;
 type RendererBackendPreference = BmdSessionState['rendererBackend'];
 const MODEL_VIEWER_PIXEL_RATIO_MAX = 2;
 
@@ -637,17 +640,25 @@ class App {
     private initUI() {
         logger.groupDebug('%c[App] initUI()', 'color:#0f0');
 
-        const bmdZone   = document.getElementById('bmd-drop-zone')!;
+        const bmdZone   = document.getElementById('bmd-drop-zone');
         const bmdInput  = document.getElementById('bmd-file-input') as HTMLInputElement;
-        const animZone  = document.getElementById('anim-bmd-drop-zone')!;
+        const animZone  = document.getElementById('anim-bmd-drop-zone');
         const animInput = document.getElementById('anim-bmd-file-input') as HTMLInputElement;
-        const texZone   = document.getElementById('texture-drop-zone')!;
+        const texZone   = document.getElementById('texture-drop-zone');
         const texInput  = document.getElementById('texture-file-input') as HTMLInputElement;
         this.exportBtn = document.getElementById('export-textures-btn') as HTMLButtonElement;
-        this.exportBtn.addEventListener('click', () => this.exportTextures());
+        this.exportBtn?.addEventListener('click', () => this.exportTextures());
 
-        const removeTexturesBtn = document.getElementById('remove-textures-btn') as HTMLButtonElement;
-        removeTexturesBtn.addEventListener('click', () => this.removeTextures());
+        const removeTexturesBtn = document.getElementById('remove-textures-btn') as HTMLButtonElement | null;
+        removeTexturesBtn?.addEventListener('click', () => this.removeTextures());
+        const packageInput = document.getElementById('texture-package-input') as HTMLInputElement | null;
+        document.getElementById('import-texture-package-btn')?.addEventListener('click', () => packageInput?.click());
+        packageInput?.addEventListener('change', () => {
+            const file = packageInput.files?.[0];
+            if (file) void readTexturePackage(file).then(files => this.handleMultipleTextureFiles(files)).catch(error => this.setStatusMessage(`Texture package error: ${error instanceof Error ? error.message : String(error)}`));
+            packageInput.value = '';
+        });
+        document.getElementById('export-texture-package-btn')?.addEventListener('click', () => { void this.exportTexturePackage(); });
 
         this.initFolderBrowser();
         
@@ -662,16 +673,16 @@ class App {
         this.rendererBackendSelect = document.getElementById('renderer-backend-select') as HTMLSelectElement | null;
         this.rendererBackendStatusEl = document.getElementById('renderer-backend-status');
 
-        const exportGifBtn = document.getElementById('export-gif-btn') as HTMLButtonElement;
-        exportGifBtn.addEventListener('click', () => this.exportGif());
+        const exportGifBtn = document.getElementById('export-gif-btn') as HTMLButtonElement | null;
+        exportGifBtn?.addEventListener('click', () => this.exportGif());
 
-        const exportGlbBtn = document.getElementById('export-glb-btn') as HTMLButtonElement;
-        exportGlbBtn.addEventListener('click', () => this.exportToGLB());
+        const exportGlbBtn = document.getElementById('export-glb-btn') as HTMLButtonElement | null;
+        exportGlbBtn?.addEventListener('click', () => this.exportToGLB());
 
-        const exportAiGlbBtn = document.getElementById('export-ai-glb-btn') as HTMLButtonElement;
-        exportAiGlbBtn.addEventListener('click', () => this.exportToGLB({ bakeSkinning: true }));
+        const exportAiGlbBtn = document.getElementById('export-ai-glb-btn') as HTMLButtonElement | null;
+        exportAiGlbBtn?.addEventListener('click', () => this.exportToGLB({ bakeSkinning: true }));
         
-        speedSlider.addEventListener('input', (e) => {
+        speedSlider?.addEventListener('input', (e) => {
             const speed = parseFloat((e.target as HTMLInputElement).value);
             speedLabel.textContent = `Speed: ${speed.toFixed(2)}x`;
             if (speedValue) {
@@ -680,9 +691,9 @@ class App {
             this.setAnimationSpeed(speed);
             this.emitStateChanged();
         });
-        const initialAnimationSpeed = parseFloat(speedSlider.value) || DEFAULT_ANIMATION_PLAYBACK_SPEED;
-        speedSlider.value = `${initialAnimationSpeed}`;
-        speedLabel.textContent = `Speed: ${initialAnimationSpeed.toFixed(2)}x`;
+        const initialAnimationSpeed = parseFloat(speedSlider?.value || '') || DEFAULT_ANIMATION_PLAYBACK_SPEED;
+        if (speedSlider) speedSlider.value = `${initialAnimationSpeed}`;
+        if (speedLabel) speedLabel.textContent = `Speed: ${initialAnimationSpeed.toFixed(2)}x`;
         if (speedValue) {
             speedValue.textContent = `${initialAnimationSpeed.toFixed(2)}x`;
         }
@@ -710,48 +721,49 @@ class App {
         }
         this.updateRendererBackendStatus();
 
-        const status = document.getElementById('status')!;
-        status.textContent = 'Waiting for BMD file…';
+        const status = document.getElementById('status');
+        if (status) status.textContent = 'Waiting for BMD file…';
 
         this.initScaleSlider();
 
         // ### NEW ### Rotation control
         const autoRotateCheckbox = document.getElementById('auto-rotate-checkbox') as HTMLInputElement;
-        autoRotateCheckbox.addEventListener('change', (e) => {
+        autoRotateCheckbox?.addEventListener('change', (e) => {
             this.isAutoRotating = (e.target as HTMLInputElement).checked;
             this.emitStateChanged();
         });
-        this.isAutoRotating = autoRotateCheckbox.checked;
+        this.isAutoRotating = autoRotateCheckbox?.checked ?? true;
 
         /* BACKGROUND COLOR */
         const bgInput = document.getElementById('bg-color-input') as HTMLInputElement;
-        bgInput.addEventListener('input', e => {
+        bgInput?.addEventListener('input', e => {
             const c = (e.target as HTMLInputElement).value;
             this.setSceneBackground(c);
             this.emitStateChanged();
         });
-        this.setSceneBackground(bgInput.value || '#0b1322');
+        this.setSceneBackground(bgInput?.value || '#0b1322');
 
         /* BRIGHTNESS */
         const brightSlider = document.getElementById('brightness-slider') as HTMLInputElement;
         const brightLabel  = document.getElementById('brightness-label')!;
-        brightSlider.addEventListener('input', e => {
+        brightSlider?.addEventListener('input', e => {
             const v = parseFloat((e.target as HTMLInputElement).value);
-            brightLabel.textContent = `Brightness: ${v.toFixed(2)}×`;
+            if (brightLabel) brightLabel.textContent = `Brightness: ${v.toFixed(2)}×`;
             this.setBrightness(v);
             this.emitStateChanged();
         });
-        const initialBrightness = parseFloat(brightSlider.value) || 2.0;
-        brightLabel.textContent = `Brightness: ${initialBrightness.toFixed(2)}×`;
+        const initialBrightness = parseFloat(brightSlider?.value || '') || 2.0;
+        if (brightLabel) brightLabel.textContent = `Brightness: ${initialBrightness.toFixed(2)}×`;
         this.setBrightness(initialBrightness);
 
         // ### NEW ### Diagnostic elements
-        this.diagActionsCountEl    = document.getElementById('diag-actions-count')!;
-        this.diagAnimationKeysEl   = document.getElementById('diag-animation-keys')!;
-        this.diagCurrentFrameEl    = document.getElementById('diag-current-frame')!;
-        this.diagBonesCountEl      = document.getElementById('diag-bones-count')!;
-        this.diagMeshesCountEl     = document.getElementById('diag-meshes-count')!;
-        this.diagFpsEl             = document.getElementById('diag-fps')!;
+        const optionalElement = (id: string): HTMLElement => document.getElementById(id) || document.createElement('span');
+        this.diagActionsCountEl    = optionalElement('diag-actions-count');
+        this.diagAnimationKeysEl   = optionalElement('diag-animation-keys');
+        this.diagCurrentFrameEl    = optionalElement('diag-current-frame');
+        this.diagBonesCountEl      = optionalElement('diag-bones-count');
+        this.diagMeshesCountEl     = optionalElement('diag-meshes-count');
+        this.diagFpsEl             = optionalElement('diag-fps');
 
         this.updateDiagnosticInfo(0); // Set initial values
 
@@ -760,18 +772,18 @@ class App {
         this.lockFrameInput    = document.getElementById('lock-frame-input')    as HTMLInputElement;
         this.lockCurrentBtn    = document.getElementById('lock-current-btn')    as HTMLButtonElement;
 
-        this.lockFrameCheckbox.addEventListener('change', () => {
+        this.lockFrameCheckbox?.addEventListener('change', () => {
             this.isFrameLocked = this.lockFrameCheckbox.checked;
             if (this.isFrameLocked) this.applyLockedFrame();
             this.emitStateChanged();
         });
 
-        this.lockFrameInput.addEventListener('input', () => {
+        this.lockFrameInput?.addEventListener('input', () => {
             this.lockedFrame = parseInt(this.lockFrameInput.value, 10) || 0;
             if (this.isFrameLocked) this.applyLockedFrame();
         });
 
-        this.lockCurrentBtn.addEventListener('click', () => {
+        this.lockCurrentBtn?.addEventListener('click', () => {
             // get the current frame from diagnostics
             const cur = parseInt(this.diagCurrentFrameEl.textContent || '0', 10) || 0;
             this.lockFrameInput.value = cur.toString();
@@ -781,7 +793,8 @@ class App {
             this.applyLockedFrame();
         });
 
-        const setupDropZone = (zone: HTMLElement, input: HTMLInputElement, onFiles: (files: FileList) => void) => {
+        const setupDropZone = (zone: HTMLElement | null, input: HTMLInputElement | null, onFiles: (files: FileList) => void) => {
+            if (!zone || !input) return;
             zone.addEventListener('click', () => input.click());
             zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
             zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
@@ -797,7 +810,8 @@ class App {
         };
 
         // Special handler for BMD files in Electron - use file dialog to get path
-        const setupBmdDropZoneElectron = async (zone: HTMLElement, input: HTMLInputElement) => {
+        const setupBmdDropZoneElectron = async (zone: HTMLElement | null, input: HTMLInputElement | null) => {
+            if (!zone || !input) return;
             const clickHandler = async () => {
                 if (isElectron()) {
                     // In Electron, use native dialog to get file path
@@ -862,11 +876,12 @@ class App {
         setupDropZone(texZone, texInput, files => this.handleMultipleTextureFiles(files));
 
         // Setup attachment drop zone
-        const attachZone = document.getElementById('attach-drop-zone')!;
-        const attachInput = document.getElementById('attach-bmd-input') as HTMLInputElement;
+        const attachZone = document.getElementById('attach-drop-zone');
+        const attachInput = document.getElementById('attach-bmd-input') as HTMLInputElement | null;
 
         // Special handler for Electron to get file path
-        const setupAttachmentDropZone = async (zone: HTMLElement, input: HTMLInputElement) => {
+        const setupAttachmentDropZone = async (zone: HTMLElement | null, input: HTMLInputElement | null) => {
+            if (!zone || !input) return;
             const clickHandler = async () => {
                 if (isElectron()) {
                     // In Electron, use native dialog to get file path
@@ -940,14 +955,14 @@ class App {
         setupAttachmentDropZone(attachZone, attachInput);
 
         // === Drag and drop on canvas (3D scene) ===========================
-        const canvasContainer = document.getElementById('canvas-container')!;
+        const canvasContainer = document.getElementById('canvas-container');
 
-        canvasContainer.addEventListener('dragover', (e) => {
+        canvasContainer?.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
         });
 
-        canvasContainer.addEventListener('drop', async (e) => {
+        canvasContainer?.addEventListener('drop', async (e) => {
             e.preventDefault();
             e.stopPropagation();
 
@@ -1610,9 +1625,10 @@ class App {
 
             group.traverse(object => {
                 if (!(object as THREE.Mesh).isMesh) return;
-                const materials = Array.isArray((object as THREE.Mesh).material)
-                    ? (object as THREE.Mesh).material
-                    : [(object as THREE.Mesh).material];
+                const mesh = object as THREE.Mesh;
+                const materials: THREE.Material[] = Array.isArray(mesh.material)
+                    ? mesh.material as THREE.Material[]
+                    : [mesh.material as THREE.Material];
                 materials.forEach(material => {
                     if ('wireframe' in material) {
                         (material as THREE.MeshPhongMaterial).wireframe = wireframeEl.checked;
@@ -2035,9 +2051,10 @@ class App {
         let used = false;
         this.loadedGroup.traverse(object => {
             if (used || !(object as THREE.Mesh).isMesh) return;
-            const materials = Array.isArray((object as THREE.Mesh).material)
-                ? (object as THREE.Mesh).material
-                : [(object as THREE.Mesh).material];
+            const mesh = object as THREE.Mesh;
+            const materials: THREE.Material[] = Array.isArray(mesh.material)
+                ? mesh.material as THREE.Material[]
+                : [mesh.material as THREE.Material];
             for (const material of materials) {
                 if (!material || material === ignoredMaterial) continue;
                 const record = material as THREE.Material & {
@@ -2066,9 +2083,10 @@ class App {
     private initFolderBrowser() {
         this.folderPanelEl = document.getElementById('folder-browser-panel');
 
-        const zone = document.getElementById('folder-bmd-drop-zone')!;
-        const input = document.getElementById('folder-bmd-input') as HTMLInputElement;
-        const closeBtn = document.getElementById('folder-browser-close')!;
+        const zone = document.getElementById('folder-bmd-drop-zone');
+        const input = document.getElementById('folder-bmd-input') as HTMLInputElement | null;
+        const closeBtn = document.getElementById('folder-browser-close');
+        if (!zone || !input || !closeBtn) return;
 
         zone.addEventListener('click', () => input.click());
         zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
@@ -2084,6 +2102,7 @@ class App {
             input.value = '';
         });
         closeBtn.addEventListener('click', () => this.closeFolderPanel());
+        document.getElementById('folder-browser-search')?.addEventListener('input', () => this.renderFolderPanel());
     }
 
     // -- folder loading --------------------------------------------------
@@ -2524,10 +2543,14 @@ class App {
         const countEl = document.getElementById('folder-browser-count');
         if (!listEl || !countEl) return;
 
-        countEl.textContent = `${this.folderFiles.length} model${this.folderFiles.length !== 1 ? 's' : ''}`;
+        const query = (document.getElementById('folder-browser-search') as HTMLInputElement | null)?.value.trim().toLowerCase() || '';
+        const visibleFiles = this.folderFiles
+            .map((file, index) => ({ file, index }))
+            .filter(entry => !query || entry.file.name.toLowerCase().includes(query));
+        countEl.textContent = `${visibleFiles.length} / ${this.folderFiles.length} model${this.folderFiles.length !== 1 ? 's' : ''}`;
         listEl.replaceChildren();
 
-        this.folderFiles.forEach((file, index) => {
+        visibleFiles.forEach(({ file, index }) => {
             const card = document.createElement('div');
             card.className = `model-card${index === this.folderActiveIndex ? ' active' : ''}`;
             card.dataset.index = String(index);
@@ -2860,12 +2883,33 @@ class App {
 
                 exported.add(mat.map);
             }
+
         });
 
         const st = document.getElementById('status')!;
         st.textContent = exported.size
             ? `Exported ${exported.size} texture(s).`
             : 'No loaded textures to export.';
+    }
+
+    private async exportTexturePackage(): Promise<void> {
+        const files = this.getAppliedTextureFiles();
+        if (files.length === 0) {
+            this.setStatusMessage('No loaded textures to package.');
+            return;
+        }
+        try {
+            const packageBlob = await createTexturePackage(files);
+            const url = URL.createObjectURL(packageBlob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `${this.bmdFile?.name.replace(/\.bmd$/i, '') || 'textures'}.mutex`;
+            anchor.click();
+            URL.revokeObjectURL(url);
+            this.setStatusMessage(`Exported texture package with ${files.length} file(s).`);
+        } catch (error) {
+            this.setStatusMessage(`Texture package export failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 
     //----------------------------------------------------------
@@ -3553,8 +3597,7 @@ class App {
 }
 
 const { explorerStore, initialState } = createExplorerStateStore();
-initialState.activeView = 'terrain';
-explorerStore.setActiveView('terrain');
+initLanguageSelector();
 document.getElementById('about-btn')?.addEventListener('click', () => {
     const dialog = document.getElementById('about-dialog') as HTMLDialogElement | null;
     dialog?.showModal();
@@ -3562,6 +3605,7 @@ document.getElementById('about-btn')?.addEventListener('click', () => {
 const app = new App(initialState.bmd.rendererBackend);
 const characterScene = new CharacterTestScene();
 const terrainScene = new TerrainScene();
+void loadMapAttributes().then(attributes => terrainScene.setMapAttributes(attributes));
 initControlMenu();
 
 initExplorerShell({

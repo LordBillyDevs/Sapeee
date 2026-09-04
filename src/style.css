@@ -41,12 +41,22 @@ body {
   height: 100%;
 }
 
-/* This build is dedicated to world editing; other legacy workspaces stay out
-   of the navigation while their shared runtime remains available. */
-.top-bar .tab-btn:not([data-view="terrain"]),
-.sidebar-content > .sidebar-view:not(#sidebar-terrain),
-.main-content.view:not(#view-terrain) {
-  display: none !important;
+.language-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.language-picker select {
+  min-width: 7.5rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.top-bar .sidebar-tabs {
+  overflow-x: auto;
 }
 
 .top-bar-menu {
@@ -889,6 +899,62 @@ input[type='color'] {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.terrain-texture-palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 0.45rem;
+  max-height: 260px;
+  margin-top: 0.6rem;
+  padding: 0.45rem;
+  overflow-y: auto;
+  border: 1px solid rgba(157, 185, 224, 0.14);
+  border-radius: 9px;
+  background: rgba(5, 10, 18, 0.72);
+}
+
+.terrain-texture-swatch {
+  min-width: 0;
+  padding: 0.25rem;
+  border: 1px solid rgba(157, 185, 224, 0.16);
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: rgba(15, 25, 40, 0.76);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.terrain-texture-swatch:hover {
+  border-color: rgba(49, 215, 255, 0.62);
+  background: rgba(18, 39, 60, 0.92);
+  transform: translateY(-1px);
+}
+
+.terrain-texture-swatch.active {
+  border-color: var(--accent-primary);
+  background: rgba(14, 73, 100, 0.62);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.2);
+}
+
+.terrain-texture-swatch img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  object-fit: cover;
+  image-rendering: auto;
+  background: #101923;
+}
+
+.terrain-texture-swatch-label {
+  display: block;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  font: 0.62rem/1.15 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #status,

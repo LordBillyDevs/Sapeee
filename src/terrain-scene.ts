@@ -40,10 +40,22 @@ import {
     type TerrainAttributeSummary,
 } from './terrain/TerrainAttributeSummary';
 import { buildTerrainGeometry, TERRAIN_SCALE, TERRAIN_WORLD_SIZE } from './terrain/TerrainMesh';
+import {
+    createTerrainMaterial,
+    updateTerrainAtlasGeometryMesh,
+    type TerrainAtlas,
+} from './terrain/TerrainTexturing';
 import { TERRAIN_SIZE, TWFlags, writeATT } from './terrain/formats/ATTReader';
 import { writeOBJ } from './terrain/formats/OBJWriter';
 import { writeMAP, type TerrainMappingData } from './terrain/formats/MAPReader';
+import { convertTgaToDataUrl } from './bmd-loader';
+import { convertOzjToDataUrl } from './ozj-loader';
+import { readTexturePackage } from './utils/TexturePackage';
+import type { TerrainTextureEntry } from './terrain/TerrainLoader';
 import { readOBJ, type OBJData, type MapObject } from './terrain/formats/OBJReader';
+import { writeOZB } from './terrain/formats/OZBReader';
+import { levelTerrain } from './terrain/TerrainLeveling';
+import { getFriendlyMapName, parseMapAttributeXml, type MapAttribute } from './map-attributes';
 import {
     createFileFromElectronData,
     isElectron,
@@ -194,6 +206,7 @@ export class TerrainScene {
     private presentationMode = false;
     private pendingRestoreState: TerrainSessionState | null = null;
     private availableWorldNumbers: number[] = [];
+    private mapAttributes: MapAttribute[] = [];
     private loadedWorldNumber: number | null = null;
     private loadedAttData: import('./terrain/formats/ATTReader').TerrainAttributeData | null = null;
     private loadedHeightData: import('./terrain/formats/OZBReader').OZBData | null = null;
@@ -225,6 +238,8 @@ export class TerrainScene {
     private brightnessSliderEl: HTMLInputElement | null = null;
     private brightnessLabelEl: HTMLElement | null = null;
     private objectDistanceSliderEl: HTMLInputElement | null = null;
+    private performanceModeEl: HTMLInputElement | null = null;
+    private terrainLevelTargetEl: HTMLInputElement | null = null;
     private objectDistanceLabelEl: HTMLElement | null = null;
     private jumpXEl: HTMLInputElement | null = null;
     private jumpZEl: HTMLInputElement | null = null;
@@ -286,6 +301,12 @@ export class TerrainScene {
     private terrainLayer2El: HTMLSelectElement | null = null;
     private terrainAlphaEl: HTMLInputElement | null = null;
     private terrainTileStatusEl: HTMLElement | null = null;
+    private terrainTexturePaletteEl: HTMLElement | null = null;
+    private terrainTextureImportStatusEl: HTMLElement | null = null;
+    private terrainTextureImportInputEl: HTMLInputElement | null = null;
+    private terrainTexturePackageInputEl: HTMLInputElement | null = null;
+    private terrainTileBrushSizeEl: HTMLInputElement | null = null;
+    private terrainTileBrushSizeValueEl: HTMLElement | null = null;
     private terrainObjectSelectEl: HTMLSelectElement | null = null;
     private terrainObjectImportInputEl: HTMLInputElement | null = null;
     private attTileXEl: HTMLInputElement | null = null;
@@ -305,6 +326,12 @@ export class TerrainScene {
     private terrainPaintLayerEl: HTMLSelectElement | null = null;
     private terrainGridEl: HTMLInputElement | null = null;
     private terrainGrid: THREE.GridHelper | null = null;
+    private terrainTextureEntries: TerrainTextureEntry[] = [];
+    private importedTerrainTextureFiles = new Map<number, File[]>();
+    private terrainTexturePaletteGeneration = 0;
+    private terrainTexturePreviewObjectUrls = new Set<string>();
+    private terrainTextureIndexByFileName = new Map<string, number>();
+    private terrainMappingRefreshHandle: number | null = null;
     private brushErase = false;
     private paintingStrokeActive = false;
     private attBrushCursor: THREE.Mesh | null = null;
@@ -345,6 +372,16 @@ export class TerrainScene {
         return this.loadedAttData;
     }
 
+    public setMapAttributes(attributes: readonly MapAttribute[]): void {
+        this.mapAttributes = [...attributes];
+        this.populateWorldSelect(this.availableWorldNumbers);
+        this.emitStateChanged();
+    }
+
+    public getFriendlyWorldName(worldNumber: number): string {
+        return getFriendlyMapName(worldNumber, this.mapAttributes);
+    }
+
     public setStatusMessage(message: string) {
         if (this.statusEl) {
             this.statusEl.textContent = message;
@@ -371,6 +408,7 @@ export class TerrainScene {
             showObjects: this.showObjectsEl?.checked ?? true,
             brightness: parseFloat(this.brightnessSliderEl?.value || `${TERRAIN_BRIGHTNESS_DEFAULT}`) || TERRAIN_BRIGHTNESS_DEFAULT,
             objectDistance: this.objectDrawDistance,
+            performanceMode: this.performanceModeEl?.checked ?? false,
         };
     }
 
@@ -410,6 +448,10 @@ export class TerrainScene {
             this.objectDistanceSliderEl.value = `${Math.round(state.objectDistance)}`;
             this.objectDrawDistance = Math.max(500, state.objectDistance);
             this.objectDistanceLabelEl.textContent = `Object Distance: ${Math.round(this.objectDrawDistance)}`;
+        }
+        if (this.performanceModeEl) {
+            this.performanceModeEl.checked = state.performanceMode;
+            this.applyPerformanceMode(state.performanceMode);
         }
 
         if (!this.loadedWorldNumber && state.lastWorldNumber !== null) {
@@ -752,6 +794,10 @@ export class TerrainScene {
 
     private clearWorldScene() {
         ++this.worldLoadToken;
+        if (this.terrainMappingRefreshHandle !== null) {
+            window.clearTimeout(this.terrainMappingRefreshHandle);
+            this.terrainMappingRefreshHandle = null;
+        }
         if (this.terrainMesh) {
             this.scene.remove(this.terrainMesh);
             this.disposeTerrainObject(this.terrainMesh);
@@ -769,6 +815,10 @@ export class TerrainScene {
         this.objectRecords = [];
         this.animatedObjectInstances = [];
         this.currentWorldFiles.clear();
+        this.terrainTextureEntries = [];
+        this.importedTerrainTextureFiles.clear();
+        this.terrainTextureIndexByFileName.clear();
+        this.renderTerrainTexturePalette([]);
         this.loadedWorldNumber = null;
         this.loadedAttData = null;
         this.loadedAttFileName = null;
@@ -983,6 +1033,8 @@ export class TerrainScene {
         this.brightnessLabelEl = document.getElementById('terrain-brightness-label');
         this.objectDistanceSliderEl = document.getElementById('terrain-object-distance-slider') as HTMLInputElement | null;
         this.objectDistanceLabelEl = document.getElementById('terrain-object-distance-label');
+        this.performanceModeEl = document.getElementById('terrain-performance-mode') as HTMLInputElement | null;
+        this.terrainLevelTargetEl = document.getElementById('terrain-level-target') as HTMLInputElement | null;
         this.minimapCanvas = document.getElementById('terrain-minimap-canvas') as HTMLCanvasElement | null;
         this.minimapContext = this.minimapCanvas?.getContext('2d') || null;
         this.jumpXEl = document.getElementById('terrain-jump-x') as HTMLInputElement | null;
@@ -1039,6 +1091,12 @@ export class TerrainScene {
         this.terrainLayer2El = document.getElementById('terrain-layer2-select') as HTMLSelectElement | null;
         this.terrainAlphaEl = document.getElementById('terrain-alpha-slider') as HTMLInputElement | null;
         this.terrainTileStatusEl = document.getElementById('terrain-tile-status');
+        this.terrainTexturePaletteEl = document.getElementById('terrain-texture-palette');
+        this.terrainTextureImportStatusEl = document.getElementById('terrain-texture-import-status');
+        this.terrainTextureImportInputEl = document.getElementById('terrain-texture-import-input') as HTMLInputElement | null;
+        this.terrainTexturePackageInputEl = document.getElementById('terrain-texture-package-input') as HTMLInputElement | null;
+        this.terrainTileBrushSizeEl = document.getElementById('terrain-tile-brush-size') as HTMLInputElement | null;
+        this.terrainTileBrushSizeValueEl = document.getElementById('terrain-tile-brush-size-value');
         this.terrainObjectSelectEl = document.getElementById('terrain-object-select') as HTMLSelectElement | null;
         this.terrainObjectImportInputEl = document.getElementById('terrain-object-import-input') as HTMLInputElement | null;
         this.attTileXEl = document.getElementById('att-editor-x') as HTMLInputElement | null;
@@ -1075,14 +1133,45 @@ export class TerrainScene {
             if (this.attBrushCursor) this.attBrushCursor.visible = this.attBrushEnabledEl?.checked === true;
         });
         this.terrainGridEl?.addEventListener('change', () => {
-            if (this.terrainGrid) this.terrainGrid.visible = this.terrainGridEl.checked;
+            if (this.terrainGrid && this.terrainGridEl) this.terrainGrid.visible = this.terrainGridEl.checked;
         });
+        this.terrainTileBrushSizeEl?.addEventListener('input', () => {
+            this.attBrushRadiusTiles = Math.max(1, Number(this.terrainTileBrushSizeEl?.value || 2));
+            if (this.terrainTileBrushSizeValueEl) {
+                this.terrainTileBrushSizeValueEl.textContent = `${this.attBrushRadiusTiles} tiles`;
+            }
+            this.updateAttBrushCursor();
+        });
+        this.terrainTileBrushEnabledEl?.addEventListener('change', () => this.updateAttBrushCursor());
+        this.performanceModeEl?.addEventListener('change', () => {
+            this.applyPerformanceMode(this.performanceModeEl?.checked === true);
+            this.emitStateChanged();
+        });
+        document.getElementById('terrain-level-btn')?.addEventListener('click', () => this.levelSelectedTerrain());
         document.getElementById('terrain-undo-btn')?.addEventListener('click', () => this.undoTerrainEdit());
         document.getElementById('terrain-redo-btn')?.addEventListener('click', () => this.redoTerrainEdit());
         this.terrainGridEl?.addEventListener('change', () => {
             if (this.terrainGrid) this.terrainGrid.visible = this.terrainGridEl?.checked === true;
         });
         this.populateTerrainTextureOptions();
+        this.terrainTextureImportInputEl?.addEventListener('change', () => {
+            if (this.terrainTextureImportInputEl?.files) {
+                void this.importTerrainTextures(this.terrainTextureImportInputEl.files);
+            }
+        });
+        document.getElementById('terrain-texture-import-btn')?.addEventListener('click', () => {
+            this.terrainTextureImportInputEl?.click();
+        });
+        this.terrainTexturePackageInputEl?.addEventListener('change', () => {
+            const file = this.terrainTexturePackageInputEl?.files?.[0];
+            if (!file) return;
+            void readTexturePackage(file)
+                .then(files => this.importTerrainTextures(files))
+                .catch(error => this.setTerrainTextureImportStatus(`Texture package error: ${error instanceof Error ? error.message : String(error)}`));
+        });
+        document.getElementById('terrain-texture-package-btn')?.addEventListener('click', () => {
+            this.terrainTexturePackageInputEl?.click();
+        });
         for (const select of [this.terrainLayer1El, this.terrainLayer2El]) {
             select?.addEventListener('change', () => {
                 if (this.terrainTileBrushEnabledEl) {
@@ -1409,6 +1498,10 @@ export class TerrainScene {
             const trimmed = rel.startsWith(rootName + '/') ? rel.slice(rootName.length + 1) : rel;
             this.dataFiles.set(trimmed.toLowerCase(), f);
         }
+        const mapAttributeFile = [...this.dataFiles.entries()].find(([key]) => /(?:^|[\\/])mapattribute\.xml$/i.test(key));
+        if (mapAttributeFile) {
+            void mapAttributeFile[1].text().then(xml => this.setMapAttributes(parseMapAttributeXml(xml)));
+        }
 
         // Scan for World{N}/ subfolders
         const worldNumbers = this.scanWorldNumbers();
@@ -1452,7 +1545,7 @@ export class TerrainScene {
         for (const n of worldNumbers) {
             const opt = document.createElement('option');
             opt.value = n.toString();
-            opt.textContent = `World ${n}`;
+            opt.textContent = `${this.getFriendlyWorldName(n)} (World ${n})`;
             this.worldSelectEl.appendChild(opt);
         }
 
@@ -1463,6 +1556,9 @@ export class TerrainScene {
     private async loadWorld(worldNumber: number) {
         const loadToken = ++this.worldLoadToken;
         const isCurrent = () => loadToken === this.worldLoadToken;
+        if (this.loadedWorldNumber !== null && this.loadedWorldNumber !== worldNumber) {
+            this.terrainTextureIndexByFileName.clear();
+        }
 
         if (this.statusEl) this.statusEl.textContent = `Loading World ${worldNumber}...`;
         this.clearSelection();
@@ -1510,7 +1606,10 @@ export class TerrainScene {
 
         try {
             const result = await this.terrainLoader.load(files, {
-                materialMode: this.rendererActiveBackend === 'webgpu' ? 'atlas-geometry' : 'shader',
+                materialMode: this.performanceModeEl?.checked
+                    ? 'baked'
+                    : this.rendererActiveBackend === 'webgpu' ? 'atlas-geometry' : 'shader',
+                textureIndexByFileName: this.terrainTextureIndexByFileName,
             });
             pendingTerrain = result.mesh;
 
@@ -1522,11 +1621,11 @@ export class TerrainScene {
 
             let objectResult: TerrainObjectLoadResult | null = null;
             if (result.objectsData) {
-                if (this.statusEl) this.statusEl.textContent = `World ${result.mapNumber} loaded. Loading objects...`;
+                if (this.statusEl) this.statusEl.textContent = `${this.getFriendlyWorldName(worldNumber)} (World ${worldNumber}) loaded. Loading objects...`;
                 objectResult = await loadTerrainObjects(
                     result.objectsData,
                     files,
-                    result.mapNumber,
+                    worldNumber,
                     (loaded, total) => {
                         if (isCurrent() && this.statusEl) {
                             this.statusEl.textContent = `Loading objects: ${loaded}/${total}...`;
@@ -1534,7 +1633,7 @@ export class TerrainScene {
                     },
                     {
                         animatedInstancingMode: getTerrainAnimatedInstancingModeForBackend(this.rendererActiveBackend),
-                        enableInstancing: false,
+                        enableInstancing: this.performanceModeEl?.checked === true,
                     },
                 );
                 pendingObjects = objectResult.group;
@@ -1569,11 +1668,13 @@ export class TerrainScene {
             pendingObjects = null;
             this.objectRecords = objectResult?.records ?? [];
             this.animatedObjectInstances = objectResult?.animatedInstances ?? [];
-            this.loadedWorldNumber = result.mapNumber;
+            // World folders are server/disk numbered (World1, World2, ...).
+            // MAP's byte is the client map number and may be zero-based.
+            this.loadedWorldNumber = worldNumber;
             this.loadedAttData = result.terrainAttributeData;
             this.loadedHeightData = result.heightData;
             this.loadedLightData = result.lightData;
-            this.loadedAttFileName = this.findCurrentWorldAttFileName(result.mapNumber);
+            this.loadedAttFileName = this.findCurrentWorldAttFileName(worldNumber);
             this.loadedObjectsData = result.objectsData;
             this.loadedMapData = {
                 version: result.mappingData.version,
@@ -1582,8 +1683,12 @@ export class TerrainScene {
                 layer2: new Uint8Array(result.mappingData.layer2),
                 alpha: new Uint8Array(result.mappingData.alpha),
             };
-            this.loadedMapFileName = this.findCurrentWorldMapFileName(result.mapNumber);
-            this.loadedObjFileName = this.findCurrentWorldObjFileName(result.mapNumber);
+            this.loadedMapFileName = this.findCurrentWorldMapFileName(worldNumber);
+            this.loadedObjFileName = this.findCurrentWorldObjFileName(worldNumber);
+            this.terrainTextureEntries = result.textureEntries;
+            result.textureEntries.forEach(entry => {
+                this.terrainTextureIndexByFileName.set(entry.file.name.toLowerCase(), entry.index);
+            });
             this.duplicateObjectData.clear();
             committed = true;
 
@@ -1595,19 +1700,22 @@ export class TerrainScene {
             this.applyTerrainTextureQuality();
             this.updateStats(this.getTerrainTileCount(result.mesh), result.objectsData?.objects.length ?? 0);
             this.updateTerrainObjectSelect();
+            this.renderTerrainTexturePalette(result.textureEntries);
             this.updateTerrainAttributePanel(summarizeTerrainAttributeData(result.terrainAttributeData));
-            this.onAttDataChanged?.(result.terrainAttributeData, result.mapNumber);
+            this.onAttDataChanged?.(result.terrainAttributeData, worldNumber);
 
             const worldCenter = (TERRAIN_SIZE * TERRAIN_SCALE) / 2;
             this.controls.target.set(worldCenter, 0, worldCenter);
             this.camera.position.set(worldCenter, 5000, worldCenter + 5000);
 
             if (this.objectsGroup) {
-                this.applyPersistedObjectTypeOverridesForWorld(result.mapNumber);
+                this.applyPersistedObjectTypeOverridesForWorld(worldNumber);
                 this.rebuildObjectCullingIndex();
-                await this.prewarmTerrainObjectResources(this.objectsGroup);
-                if (!isCurrent()) return;
-                void this.prewarmTerrainObjectResourcesBackground(this.objectsGroup);
+                if (!this.performanceModeEl?.checked) {
+                    await this.prewarmTerrainObjectResources(this.objectsGroup);
+                    if (!isCurrent()) return;
+                    void this.prewarmTerrainObjectResourcesBackground(this.objectsGroup);
+                }
 
                 if (this.showObjectsEl) {
                     this.objectsGroup.visible = this.showObjectsEl.checked;
@@ -1624,12 +1732,12 @@ export class TerrainScene {
             this.applyPendingRestoreState();
             this.updateSelectionMarker();
             this.scheduleCameraChangedEmit();
-            this.onWorldLoaded?.(result.mapNumber, [...this.availableWorldNumbers]);
+            this.onWorldLoaded?.(worldNumber, [...this.availableWorldNumbers]);
             this.emitStateChanged();
 
             if (this.statusEl) {
                 const objectCount = result.objectsData?.objects.length ?? 0;
-                this.statusEl.textContent = `World ${result.mapNumber} loaded. ${objectCount} objects.`;
+                this.statusEl.textContent = `${this.getFriendlyWorldName(worldNumber)} (World ${worldNumber}) loaded. ${objectCount} objects.`;
             }
         } catch (error) {
             if (pendingTerrain) this.disposeTerrainObject(pendingTerrain);
@@ -1745,6 +1853,133 @@ export class TerrainScene {
         }
     }
 
+    private setTerrainTextureImportStatus(message: string): void {
+        if (this.terrainTextureImportStatusEl) {
+            this.terrainTextureImportStatusEl.textContent = message;
+        }
+    }
+
+    private async importTerrainTextures(fileList: FileList | readonly File[]): Promise<void> {
+        if (this.loadedWorldNumber === null) {
+            this.setTerrainTextureImportStatus('Load a world before importing map textures.');
+            return;
+        }
+
+        const supported = Array.from(fileList).filter(file => /\.(jpg|jpeg|png|tga|ozj|ozt)$/i.test(file.name));
+        if (supported.length === 0) {
+            this.setTerrainTextureImportStatus('Choose JPG, PNG, TGA, OZJ or OZT texture files.');
+            return;
+        }
+
+        const worldNumber = this.loadedWorldNumber;
+        // Preserve the complete current world in the browser file index before
+        // reloading, so importing textures never drops already loaded terrain.
+        for (const [key, file] of this.currentWorldFiles) {
+            this.dataFiles.set(key, file);
+        }
+
+        const existingNames = new Set(
+            [...this.currentWorldFiles.values()].map(file => file.name.toLowerCase()),
+        );
+        let added = 0;
+        for (const file of supported) {
+            if (existingNames.has(file.name.toLowerCase())) continue;
+            const key = `world${worldNumber}/textures/${file.name}`.toLowerCase();
+            this.dataFiles.set(key, file);
+            existingNames.add(file.name.toLowerCase());
+            const importedForWorld = this.importedTerrainTextureFiles.get(worldNumber) || [];
+            importedForWorld.push(file);
+            this.importedTerrainTextureFiles.set(worldNumber, importedForWorld);
+            added++;
+        }
+
+        if (added === 0) {
+            this.setTerrainTextureImportStatus('Those texture files are already in this world palette.');
+            return;
+        }
+
+        this.setTerrainTextureImportStatus(`Added ${added} texture${added === 1 ? '' : 's'}; rebuilding the world palette…`);
+        await this.loadWorld(worldNumber);
+        this.setTerrainTextureImportStatus(`Palette ready: ${this.terrainTextureEntries.length} texture${this.terrainTextureEntries.length === 1 ? '' : 's'}.`);
+    }
+
+    private renderTerrainTexturePalette(entries: readonly TerrainTextureEntry[]): void {
+        if (!this.terrainTexturePaletteEl) return;
+        const generation = ++this.terrainTexturePaletteGeneration;
+        this.terrainTexturePreviewObjectUrls.forEach(url => URL.revokeObjectURL(url));
+        this.terrainTexturePreviewObjectUrls.clear();
+        this.terrainTexturePaletteEl.replaceChildren();
+
+        if (entries.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'control-note';
+            empty.textContent = 'No terrain textures found yet.';
+            this.terrainTexturePaletteEl.appendChild(empty);
+            return;
+        }
+
+        for (const entry of entries) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'terrain-texture-swatch';
+            button.dataset.textureIndex = `${entry.index}`;
+            button.title = `Texture ${entry.index}: ${entry.file.name}`;
+            button.setAttribute('role', 'option');
+            button.setAttribute('aria-selected', 'false');
+            button.addEventListener('click', () => this.selectTerrainTexture(entry.index));
+
+            const preview = document.createElement('img');
+            preview.alt = '';
+            preview.loading = 'lazy';
+            button.appendChild(preview);
+
+            const label = document.createElement('span');
+            label.className = 'terrain-texture-swatch-label';
+            label.textContent = `${entry.index} · ${entry.file.name}`;
+            button.appendChild(label);
+            this.terrainTexturePaletteEl!.appendChild(button);
+
+            void this.createTerrainTexturePreviewUrl(entry.file).then(url => {
+                if (generation !== this.terrainTexturePaletteGeneration) {
+                    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+                    return;
+                }
+                if (url.startsWith('blob:')) this.terrainTexturePreviewObjectUrls.add(url);
+                preview.src = url;
+            }).catch(() => {
+                if (generation !== this.terrainTexturePaletteGeneration) return;
+                preview.alt = 'Preview unavailable';
+            });
+        }
+    }
+
+    private selectTerrainTexture(index: number): void {
+        const value = `${index}`;
+        const paintLayer = this.terrainPaintLayerEl?.value || 'both';
+        if (paintLayer !== '2' && this.terrainLayer1El) this.terrainLayer1El.value = value;
+        if (paintLayer !== '1' && this.terrainLayer2El) this.terrainLayer2El.value = value;
+        this.terrainTexturePaletteEl?.querySelectorAll<HTMLElement>('.terrain-texture-swatch').forEach(swatch => {
+            const selected = swatch.dataset.textureIndex === value;
+            swatch.classList.toggle('active', selected);
+            swatch.setAttribute('aria-selected', selected ? 'true' : 'false');
+        });
+        if (this.terrainTileBrushEnabledEl) this.terrainTileBrushEnabledEl.checked = true;
+        if (this.terrainTileStatusEl) {
+            this.terrainTileStatusEl.textContent = `Texture ${index} selected. Paint on the terrain or apply it to the selected tile.`;
+        }
+    }
+
+    private async createTerrainTexturePreviewUrl(file: File): Promise<string> {
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        if (extension === 'ozj' || extension === 'ozt') {
+            return convertOzjToDataUrl(await file.arrayBuffer(), extension);
+        }
+        if (extension === 'tga') {
+            return convertTgaToDataUrl(await file.arrayBuffer());
+        }
+        return URL.createObjectURL(file);
+    }
+
     private findCurrentWorldObjFileName(worldNumber: number): string {
         for (const [key, file] of this.currentWorldFiles) {
             if (key.startsWith(`world${worldNumber}/`) && /\.obj$/i.test(key)) {
@@ -1832,7 +2067,10 @@ export class TerrainScene {
             this.scene.add(this.attBrushCursor);
         }
         this.attBrushCursor.scale.setScalar(Math.max(0.5, this.attBrushRadiusTiles - 0.5) * TERRAIN_SCALE);
-        this.attBrushCursor.visible = this.attBrushEnabledEl?.checked === true && this.loadedAttData !== null;
+        this.attBrushCursor.visible = (
+            (this.attBrushEnabledEl?.checked === true && this.loadedAttData !== null)
+            || (this.terrainTileBrushEnabledEl?.checked === true && this.loadedMapData !== null)
+        );
         if (clientX === undefined || clientY === undefined || !this.attBrushCursor.visible) return;
         const hit = this.getTerrainHitAtClientPoint(clientX, clientY);
         if (!hit) {
@@ -2135,6 +2373,39 @@ export class TerrainScene {
 
     private updateTerrainMaterialMapping() {
         if (!this.terrainMesh || !this.loadedMapData) return;
+        const materialMode = this.terrainMesh.userData.terrainMaterialMode as string | undefined;
+        const atlas = this.terrainMesh.userData.terrainAtlas as TerrainAtlas | undefined;
+        if (materialMode === 'baked' && atlas) {
+            if (this.terrainMappingRefreshHandle === null) {
+                this.terrainMappingRefreshHandle = window.setTimeout(() => {
+                    this.terrainMappingRefreshHandle = null;
+                    if (!this.terrainMesh || !this.loadedMapData || !atlas || this.terrainMesh.userData.terrainAtlas !== atlas) return;
+                    const previous = this.terrainMesh.material as THREE.Material;
+                    this.terrainMesh.material = createTerrainMaterial(
+                        atlas,
+                        this.loadedMapData,
+                        this.terrainMesh.userData.terrainUseLightmap === true,
+                        'baked',
+                    );
+                    Disposer.disposeMaterial(previous);
+                }, 120);
+            }
+            return;
+        }
+        if (materialMode === 'atlas-geometry' && atlas) {
+            const sourceGeometry = this.terrainMesh.userData.terrainSourceGeometry as THREE.BufferGeometry | undefined;
+            if (sourceGeometry && this.loadedAttData) {
+                updateTerrainAtlasGeometryMesh(
+                    this.terrainMesh,
+                    sourceGeometry,
+                    this.loadedAttData,
+                    atlas,
+                    this.loadedMapData,
+                    this.terrainMesh.userData.terrainUseLightmap === true,
+                );
+            }
+            return;
+        }
         this.forEachTerrainMaterial(this.terrainMesh, material => {
             if (!(material instanceof THREE.ShaderMaterial)) return;
             for (const [name, values] of [
@@ -2244,7 +2515,7 @@ export class TerrainScene {
             if (duplicateIndex >= 0) this.loadedObjectsData.objects.splice(duplicateIndex, 1);
         } else if (this.loadedObjectsData) {
             const objectIndex = this.loadedObjectsData.objects.findIndex(object => {
-                const candidateId = createWorldObjectId(this.loadedObjectsData!.mapNumber, object.type, {
+                const candidateId = createWorldObjectId(this.loadedWorldNumber ?? this.loadedObjectsData!.mapNumber, object.type, {
                     x: object.position.x,
                     z: TERRAIN_WORLD_SIZE - object.position.y,
                 });
@@ -2987,10 +3258,45 @@ export class TerrainScene {
                     return;
                 }
             }
-            this.setObjectEditorStatus(`Exported edited MAP${this.loadedObjectsData ? ' and OBJ' : ''}.`);
+            let exportedHeight = false;
+            if (this.loadedHeightData) {
+                const heightResult = await writeFileInDirectory(
+                    exportRoot,
+                    `World${this.loadedWorldNumber}/${this.findCurrentWorldHeightFileName()}`,
+                    writeOZB(this.loadedHeightData, 'BM8'),
+                );
+                if (heightResult.error || !heightResult.path) {
+                    this.setObjectEditorStatus(`MAP exported, height export failed: ${heightResult.error || 'unknown error'}`);
+                    return;
+                }
+                exportedHeight = true;
+            }
+            let exportedTextures = 0;
+            const importedTextures = this.importedTerrainTextureFiles.get(this.loadedWorldNumber) || [];
+            for (const file of importedTextures) {
+                const textureResult = await writeFileInDirectory(
+                    exportRoot,
+                    `World${this.loadedWorldNumber}/Textures/${file.name}`,
+                    new Uint8Array(await file.arrayBuffer()),
+                );
+                if (textureResult.error || !textureResult.path) {
+                    this.setObjectEditorStatus(`MAP exported, texture export failed: ${textureResult.error || 'unknown error'}`);
+                    return;
+                }
+                exportedTextures++;
+            }
+            this.setObjectEditorStatus(`Exported edited MAP${this.loadedObjectsData ? ' and OBJ' : ''}${exportedHeight ? ' and height' : ''}${exportedTextures ? ` and ${exportedTextures} texture${exportedTextures === 1 ? '' : 's'}` : ''}.`);
         } catch (error) {
             this.setObjectEditorStatus(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
         }
+
+    }
+
+    private findCurrentWorldHeightFileName(): string {
+        for (const [key, file] of this.currentWorldFiles) {
+            if (key.startsWith(`world${this.loadedWorldNumber}/`) && /terrainheight\.ozb$/i.test(key)) return file.name;
+        }
+        return 'TerrainHeight.ozb';
     }
 
     private buildCurrentWorldObjData(): OBJData {
@@ -3004,7 +3310,7 @@ export class TerrainScene {
         }
 
         const objects = this.loadedObjectsData.objects.map(object => {
-            const objectId = createWorldObjectId(this.loadedObjectsData!.mapNumber, object.type, {
+            const objectId = createWorldObjectId(this.loadedWorldNumber ?? this.loadedObjectsData!.mapNumber, object.type, {
                 x: object.position.x,
                 z: TERRAIN_WORLD_SIZE - object.position.y,
             });
@@ -3540,7 +3846,10 @@ export class TerrainScene {
     }
 
     private disposeTerrainObject(root: THREE.Object3D) {
+        const atlas = root.userData.terrainAtlas as TerrainAtlas | undefined;
+        const ownsAtlas = root.userData.terrainAtlasOwned === true;
         Disposer.disposeObject3D(root, false);
+        if (ownsAtlas) atlas?.texture.dispose();
     }
 
     private updateStats(tileCount: number, objectCount: number) {
@@ -3874,8 +4183,43 @@ export class TerrainScene {
         if (this.renderer) {
             this.renderer.toneMappingExposure = safeValue;
         }
+
         if (this.ambientLight) this.ambientLight.intensity = TERRAIN_BASE_AMBIENT_INTENSITY * safeValue;
         if (this.sunLight) this.sunLight.intensity = TERRAIN_BASE_SUN_INTENSITY * safeValue;
+    }
+
+    private applyPerformanceMode(enabled: boolean): void {
+        if (this.containerEl && this.renderer) {
+            const width = this.containerEl.clientWidth || 1;
+            const height = this.containerEl.clientHeight || 1;
+            this.renderer.setPixelRatio(enabled ? Math.min(window.devicePixelRatio, 0.85) : Math.min(window.devicePixelRatio, TERRAIN_MAX_PIXEL_RATIO));
+            this.renderer.setSize(width, height, false);
+        }
+        if (this.sunLight) this.sunLight.castShadow = !enabled;
+        if (enabled) {
+            this.objectDrawDistance = Math.min(this.objectDrawDistance, 5000);
+            if (this.objectDistanceSliderEl) this.objectDistanceSliderEl.value = `${Math.round(this.objectDrawDistance)}`;
+        }
+        this.updateObjectDistanceCulling(true);
+    }
+
+    private levelSelectedTerrain(): void {
+        if (!this.loadedHeightData || !this.loadedAttData || !this.terrainMesh) {
+            if (this.attEditorStatusEl) this.attEditorStatusEl.textContent = 'Load a world with height data before leveling terrain.';
+            return;
+        }
+        this.beginTerrainEdit();
+        const x = THREE.MathUtils.clamp(parseInt(this.attTileXEl?.value || '0', 10), 0, TERRAIN_SIZE - 1);
+        const z = THREE.MathUtils.clamp(parseInt(this.attTileZEl?.value || '0', 10), 0, TERRAIN_SIZE - 1);
+        const radius = Math.max(1, Math.round(this.attBrushRadiusTiles));
+        const targetValue = this.terrainLevelTargetEl?.value.trim();
+        const target = targetValue ? Number(targetValue) : undefined;
+        const level = levelTerrain(this.loadedHeightData, x - radius, z - radius, x + radius, z + radius, Number.isFinite(target) ? target : undefined);
+        const geometry = buildTerrainGeometry(this.loadedHeightData, this.loadedAttData, this.loadedLightData);
+        this.terrainMesh.geometry.dispose();
+        this.terrainMesh.geometry = geometry;
+        this.refreshTerrainAttOverlay();
+        if (this.attEditorStatusEl) this.attEditorStatusEl.textContent = `Terrain leveled to ${level} at ${x}, ${z}. Export height data with the world files.`;
     }
 
     private getRendererMaxAnisotropy(): number {
