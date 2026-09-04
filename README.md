@@ -1,6 +1,6 @@
 # MU Online Client Editor
 
-A modern, web-based toolkit for inspecting and editing MU Online client files. Built with TypeScript, Three.js, and Vite, it provides interactive 3D viewers for `.bmd` models and terrain, alongside data browsers for items, skills, GFx UI, and sound assets.
+A focused MU Online terrain and map editor built with TypeScript, Three.js, and Vite. The desktop build opens directly on world editing and exports encrypted files compatible with the game client.
 
 > **Version** 1.1.0 | **License** ISC
 
@@ -57,6 +57,9 @@ A modern, web-based toolkit for inspecting and editing MU Online client files. B
 - ATT attribute overlay with TWFlags visualization.
 - Bookmarks (save/restore camera positions).
 - Export world geometry as OBJ.
+- Edit base texture, overlay texture, and blend alpha per terrain tile.
+- Select objects manually from a world object list.
+- Export edited MAP and OBJ files into a client-compatible `WorldN` folder.
 - Terrain object overrides persisted to `terrain-object-overrides.json`.
 - Wireframe, animations, sun light, and object draw-distance controls.
 
@@ -76,6 +79,9 @@ The desktop version provides additional capabilities not available in the browse
 - Direct file system access for loading world data and terrain objects.
 - Terrain object overrides read/write to user data directory.
 - Cross-platform builds: Windows (NSIS installer, x64), Linux (AppImage, x64), macOS (DMG).
+
+For a standalone Windows `.exe` without installation, run
+`npm run electron:build:portable`; the artifact is written to `release/`.
 
 ## Tech Stack
 
@@ -190,7 +196,7 @@ The application uses a tabbed interface with 9 workspaces:
 2. **Navigate**: Use the minimap or jump to coordinates. Save bookmarks for quick access.
 3. **Inspect ATT**: Toggle ATT overlay to visualize terrain flags; use the ATT Inspector tab for detailed per-tile lookup.
 4. **Select Objects**: Click objects in the scene; use the gizmo to move or rotate them. Right-click for the object editor panel.
-5. **Edit Objects**: Adjust position, scale, and material overrides. Settings persist to `terrain-object-overrides.json`.
+5. **Edit Objects**: Adjust position, scale, and material overrides. In **Place a copy**, enter X/Y/Z map coordinates and use **Duplicate at coordinates** or **Add copy at coordinates** to create a physical BMD instance at that location. Settings persist to `terrain-object-overrides.json`.
 6. **Export**: Export world geometry as OBJ.
 
 ### Data Browser Workflow

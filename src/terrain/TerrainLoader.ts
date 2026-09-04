@@ -17,8 +17,11 @@ import { logger } from '../utils/Logger';
 export interface TerrainResult {
     mesh: THREE.Mesh;
     objectsData: OBJData | null;
+    mappingData: TerrainMappingData;
     mapNumber: number;
     terrainAttributeData: TerrainAttributeData;
+    heightData: OZBData;
+    lightData: OZBData | null;
 }
 
 // Default terrain texture filenames — matches Client.Main TerrainData.GetDefaultTextureMappings().
@@ -107,8 +110,11 @@ export class TerrainLoader {
         return {
             mesh,
             objectsData: objData,
+            mappingData: mapData,
             mapNumber: mapData.mapNumber,
             terrainAttributeData: attData,
+            heightData,
+            lightData,
         };
     }
 
@@ -170,11 +176,16 @@ export class TerrainLoader {
     ): Promise<Map<number, THREE.Texture>> {
         const textureMap = new Map<number, THREE.Texture>();
 
-        // Find all unique texture indices used
+        // Load every terrain texture present in the selected World folder, not
+        // only indices currently referenced by MAP. This keeps newly painted
+        // tiles usable when the chosen texture was not used before editing.
         const usedIndices = new Set<number>();
         for (let i = 0; i < mapData.layer1.length; i++) {
             usedIndices.add(mapData.layer1[i]);
             usedIndices.add(mapData.layer2[i]);
+        }
+        for (const index of this.getAvailableTextureIndices(files)) {
+            usedIndices.add(index);
         }
 
         logger.groupDebug('Terrain texture loading');
@@ -193,6 +204,22 @@ export class TerrainLoader {
         logger.groupEnd();
 
         return textureMap;
+    }
+
+    private getAvailableTextureIndices(files: Map<string, File>): Set<number> {
+        const indices = new Set<number>();
+        for (const [index, filename] of Object.entries(DEFAULT_TEXTURE_FILES)) {
+            if (this.findFileByName(files, filename)) {
+                indices.add(Number(index));
+            }
+        }
+        for (let index = 14; index <= 29; index++) {
+            const extIndex = (index - 13).toString().padStart(2, '0');
+            if (this.findFileByName(files, `ExtTile${extIndex}.ozj`)) {
+                indices.add(index);
+            }
+        }
+        return indices;
     }
 
     private async tryLoadTexture(files: Map<string, File>, idx: number): Promise<THREE.Texture | null> {

@@ -3,9 +3,9 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <link rel="icon" type="image/png" href="/mudevs-logo.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MU Online BMD Viewer</title>
+  <title>Mu World Editor V1.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -18,22 +18,14 @@
 
     <div class="top-bar">
       <div class="top-bar-brand">
-        <span class="top-bar-eyebrow">MU Online Toolkit</span>
-        <span class="top-bar-title">Client Editor</span>
+        <span class="top-bar-eyebrow">For MuOnline Community</span>
+        <span class="top-bar-title">Mu World Editor V1.0</span>
       </div>
-      <div class="sidebar-tabs" id="sidebar-tabs">
-        <button class="tab-btn active" data-view="bmd">Model</button>
-        <button class="tab-btn" data-view="character">Character</button>
-        <button class="tab-btn" data-view="terrain">World</button>
-        <button class="tab-btn" data-view="att">ATT</button>
-        <button class="tab-btn" data-view="ozj">OZJ</button>
-        <button class="tab-btn" data-view="items">Items</button>
-        <button class="tab-btn" data-view="skills">Skills</button>
-        <button class="tab-btn" data-view="gfx">GFx</button>
-        <button class="tab-btn" data-view="sound">Sound</button>
+      <div class="top-bar-menu" aria-label="Application menu">
+        <button id="about-btn" class="top-bar-menu-btn" type="button">About</button>
       </div>
       <div class="top-bar-actions">
-        <div class="sidebar-view-badge" id="sidebar-view-badge">Model workspace</div>
+        <div class="sidebar-view-badge" id="sidebar-view-badge">Map workspace</div>
         <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle Controls">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 6H20M4 12H20M4 18H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -517,44 +509,57 @@
             </div>
           </div>
 
-          <div class="control-section" id="terrain-attribute-section"
-            data-menu-description="Read the loaded ATT header and inspect every TWFlags bit in one place."
-            data-menu-badge="Inspect">
-            <h3>ATT Parameters</h3>
-            <p id="terrain-attribute-status" class="control-note accent-note">Load a world to inspect ATT metadata.</p>
-            <div class="terrain-attribute-grid section-gap">
-              <div class="terrain-attribute-field">
-                <span class="terrain-attribute-field-label">Version</span>
-                <strong id="terrain-attribute-version" class="terrain-attribute-field-value">-</strong>
-              </div>
-              <div class="terrain-attribute-field">
-                <span class="terrain-attribute-field-label">Index</span>
-                <strong id="terrain-attribute-index" class="terrain-attribute-field-value">-</strong>
-              </div>
-              <div class="terrain-attribute-field">
-                <span class="terrain-attribute-field-label">Header</span>
-                <strong id="terrain-attribute-dimensions" class="terrain-attribute-field-value">-</strong>
-              </div>
-              <div class="terrain-attribute-field">
-                <span class="terrain-attribute-field-label">Format</span>
-                <strong id="terrain-attribute-format" class="terrain-attribute-field-value">-</strong>
-              </div>
-              <div class="terrain-attribute-field">
-                <span class="terrain-attribute-field-label">Tiles</span>
-                <strong id="terrain-attribute-tiles" class="terrain-attribute-field-value">-</strong>
-              </div>
-              <div class="terrain-attribute-field">
-                <span class="terrain-attribute-field-label">Flagged</span>
-                <strong id="terrain-attribute-occupied" class="terrain-attribute-field-value">-</strong>
-              </div>
+          <div class="control-section" id="terrain-att-editor-section"
+            data-menu-description="Paint walkable, safe, blocked, water and attack-zone flags directly on ATT tiles."
+            data-menu-badge="Edit">
+            <h3>ATT Area Editor</h3>
+            <p class="control-note">Select a tile in the map or enter coordinates.</p>
+            <div class="row-inline">
+              <input id="att-editor-x" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="X">
+              <input id="att-editor-z" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="Z">
+              <button id="att-editor-select-btn" class="modern-btn">Read</button>
             </div>
-
-            <div class="section-divider">
-              <p class="terrain-attribute-legend-label control-note">TWFlags legend</p>
-              <div id="terrain-attribute-legend" class="terrain-attribute-legend"></div>
+            <div class="att-editor-flags">
+              <label><input type="checkbox" data-att-editor-flag="1"> Safe Zone</label>
+              <label><input type="checkbox" data-att-editor-flag="2"> Character Area</label>
+              <label><input type="checkbox" data-att-editor-flag="4"> No Move</label>
+              <label><input type="checkbox" data-att-editor-flag="8"> No Ground</label>
+              <label><input type="checkbox" data-att-editor-flag="16"> Water</label>
+              <label><input type="checkbox" data-att-editor-flag="32"> Action Area</label>
+              <label><input type="checkbox" data-att-editor-flag="256"> Red / No Attack</label>
             </div>
-
+            <label class="checkbox-control space-top-sm">
+              <span>Paint ATT on map</span>
+              <input id="att-brush-enabled" type="checkbox" class="modern-checkbox">
+            </label>
+            <div class="brightness-control space-top-sm">
+              <label for="att-brush-size">Brush size <span id="att-brush-size-value">2 tiles</span></label>
+              <input id="att-brush-size" type="range" class="modern-slider" min="1" max="16" step="1" value="2">
+            </div>
+            <div class="brightness-control space-top-sm">
+              <label for="terrain-brush-hardness">Brush hardness</label>
+              <input id="terrain-brush-hardness" type="range" class="modern-slider" min="1" max="100" step="1" value="100">
+            </div>
+            <div class="brightness-control space-top-sm">
+              <label for="terrain-brush-strength">Brush strength</label>
+              <input id="terrain-brush-strength" type="range" class="modern-slider" min="1" max="100" step="1" value="100">
+            </div>
+            <label class="checkbox-control space-top-sm">
+              <span>Edit terrain height</span>
+              <input id="terrain-height-enabled" type="checkbox" class="modern-checkbox">
+            </label>
+            <label class="checkbox-control space-top-sm">
+              <span>Smooth height</span>
+              <input id="terrain-height-smooth" type="checkbox" class="modern-checkbox">
+            </label>
+            <div class="brightness-control space-top-sm">
+              <label for="terrain-height-strength">Height change</label>
+              <input id="terrain-height-strength" type="range" class="modern-slider" min="-32" max="32" step="1" value="8">
+            </div>
+            <button id="att-editor-apply-btn" class="modern-btn btn-primary full-width space-top-sm">Apply Area Flags</button>
             <button id="att-overlay-toggle" class="modern-btn full-width space-top-sm">Show ATT Overlay</button>
+            <button id="att-editor-export-btn" class="modern-btn full-width space-top-sm">Export Edited ATT</button>
+            <p id="att-editor-status" class="control-note"></p>
           </div>
 
           <div class="control-section" id="terrain-navigation-section"
@@ -566,6 +571,38 @@
               <input id="terrain-jump-x" type="number" class="frame-input input-w-lg" placeholder="X">
               <input id="terrain-jump-z" type="number" class="frame-input input-w-lg" placeholder="Z">
               <button id="terrain-jump-btn" class="modern-btn btn-primary">Jump</button>
+            </div>
+
+            <div class="control-section" id="terrain-texture-editor-section"
+              data-menu-description="Select a terrain tile in the viewport or enter its coordinates, then change the texture layers and blend alpha."
+              data-menu-badge="Edit">
+              <h3>Terrain Textures</h3>
+              <p class="control-note">Click the ground to select a tile.</p>
+              <div class="row-inline">
+                <input id="terrain-tile-x" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="X">
+                <input id="terrain-tile-z" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="Z">
+              </div>
+              <label class="checkbox-control space-top-sm">
+                <span>Paint selected tile</span>
+                <input id="terrain-tile-brush-enabled" type="checkbox" class="modern-checkbox">
+              </label>
+              <label class="field-label space-top-sm" for="terrain-layer1-select">Base texture</label>
+              <select id="terrain-layer1-select" class="animation-dropdown full-width"></select>
+              <label class="field-label space-top-sm" for="terrain-layer2-select">Overlay texture</label>
+              <select id="terrain-layer2-select" class="animation-dropdown full-width"></select>
+              <label class="field-label space-top-sm" for="terrain-paint-layer">Paint layer</label>
+              <select id="terrain-paint-layer" class="animation-dropdown full-width">
+                <option value="both">Both layers</option>
+                <option value="1">Base only</option>
+                <option value="2">Overlay only</option>
+              </select>
+              <div class="brightness-control space-top-sm">
+                <label for="terrain-alpha-slider">Blend alpha</label>
+                <input id="terrain-alpha-slider" type="range" class="modern-slider" min="0" max="255" step="1" value="0">
+              </div>
+              <button id="terrain-apply-tile-btn" class="modern-btn btn-primary full-width space-top-sm">Apply Tile</button>
+              <button id="terrain-export-map-btn" class="modern-btn full-width space-top-sm">Export Edited MAP + OBJ</button>
+              <p id="terrain-tile-status" class="control-note"></p>
             </div>
             <div class="row-inline space-top-sm">
               <input id="terrain-bookmark-name" type="text" class="animation-dropdown full-width"
@@ -580,6 +617,14 @@
             data-menu-description="Render and distance controls for scene inspection after a world is loaded."
             data-menu-badge="Preview">
             <h3>Viewport</h3>
+            <div class="row-inline space-bottom-sm">
+              <button id="terrain-undo-btn" class="modern-btn">Undo</button>
+              <button id="terrain-redo-btn" class="modern-btn">Redo</button>
+            </div>
+            <label class="checkbox-control">
+              <span>Terrain grid</span>
+              <input id="terrain-grid-enabled" type="checkbox" class="modern-checkbox">
+            </label>
             <label for="terrain-renderer-backend" class="field-label">Renderer Backend</label>
             <select id="terrain-renderer-backend" class="animation-dropdown full-width mb-sm">
               <option value="auto">Auto (prefer WebGPU)</option>
@@ -603,6 +648,16 @@
               <label for="terrain-sun-enabled">Sun Light</label>
               <input type="checkbox" id="terrain-sun-enabled" class="modern-checkbox" checked>
             </div>
+            <div class="terrain-light-controls section-divider">
+              <label class="field-label" for="terrain-light-color">Terrain light RGB</label>
+              <input id="terrain-light-color" type="color" value="#fff8e0">
+              <label class="checkbox-control">
+                <span>Paint terrain light</span>
+                <input id="terrain-light-paint-enabled" type="checkbox" class="modern-checkbox">
+              </label>
+              <label class="field-label" for="terrain-light-intensity">Light power</label>
+              <input id="terrain-light-intensity" type="range" class="modern-slider" min="0" max="3" step="0.05" value="1.2">
+            </div>
             <div class="section-divider">
               <div class="brightness-control">
                 <label id="terrain-brightness-label" for="terrain-brightness-slider">Brightness</label>
@@ -621,6 +676,15 @@
             data-menu-description="Selected-object details and actions stay isolated from map navigation for less clutter."
             data-menu-badge="Inspect">
             <h3>Selected Object</h3>
+            <label class="field-label" for="terrain-object-select">Manual object selection</label>
+            <select id="terrain-object-select" class="animation-dropdown full-width mb-sm">
+              <option value="">-- Select object manually --</option>
+            </select>
+            <label class="field-label space-top-sm" for="terrain-object-import-input">Import BMD + textures</label>
+            <input id="terrain-object-import-input" type="file" webkitdirectory directory multiple class="file-input-hidden" />
+            <button id="terrain-object-import-btn" class="modern-btn full-width">Choose BMD folder</button>
+            <button id="terrain-add-object-btn" class="modern-btn btn-primary full-width space-top-sm">Add selected object to map</button>
+            <p id="terrain-object-import-status" class="control-note"></p>
             <div id="terrain-object-empty" class="control-note">No object selected.</div>
             <div id="terrain-object-details" class="hidden">
               <p>World: <span id="terrain-selected-world">-</span></p>
@@ -629,6 +693,9 @@
               <p>Position: <span id="terrain-selected-position">-</span></p>
               <p>Rotation: <span id="terrain-selected-rotation">-</span></p>
               <p>Scale: <span id="terrain-selected-scale">-</span></p>
+              <div id="terrain-object-preview" class="terrain-object-preview">
+                <canvas id="terrain-object-preview-canvas"></canvas>
+              </div>
               <div id="terrain-transform-gizmo-controls" class="terrain-transform-gizmo-controls space-top-sm">
                 <p class="control-note accent-note">Drag the gizmo in the render to move or rotate this object.</p>
                 <div class="row-inline terrain-transform-mode-row">
@@ -638,21 +705,28 @@
               </div>
               <div class="stack-sm space-top-sm">
                 <button id="terrain-focus-object-btn" class="modern-btn btn-primary">Focus</button>
+                <button id="terrain-duplicate-object-btn" class="modern-btn">Duplicate</button>
+                <button id="terrain-remove-object-btn" class="modern-btn btn-danger">Remove Object</button>
                 <button id="terrain-isolate-object-btn" class="modern-btn">Hide Others</button>
                 <button id="terrain-reset-isolate-btn" class="modern-btn">Reset</button>
-                <button id="terrain-open-model-btn" class="modern-btn">Open in Model Viewer</button>
+              </div>
+              <div class="section-divider space-top-sm">
+                <h4>Place a copy</h4>
+                <p class="control-note">Enter map coordinates for a new copy of the selected BMD.</p>
+                <div class="row-inline">
+                  <input id="terrain-object-copy-x" type="number" class="frame-input input-w-md" step="1" placeholder="X">
+                  <input id="terrain-object-copy-y" type="number" class="frame-input input-w-md" step="1" placeholder="Y">
+                  <input id="terrain-object-copy-z" type="number" class="frame-input input-w-md" step="1" placeholder="Z">
+                </div>
+                <div class="row-inline space-top-sm">
+                  <button id="terrain-duplicate-object-at-coords-btn" type="button" class="modern-btn btn-primary">Duplicate at coordinates</button>
+                  <button id="terrain-add-object-at-coords-btn" type="button" class="modern-btn">Add copy at coordinates</button>
+                </div>
               </div>
               <p id="terrain-open-model-hint" class="control-note"></p>
             </div>
           </div>
 
-          <div class="control-section" id="terrain-stats"
-            data-menu-description="High-level counters for troubleshooting world loading and density."
-            data-menu-badge="Stats">
-            <h3>Stats</h3>
-            <p>Tiles: <span id="terrain-tile-count">0</span></p>
-            <p>Objects: <span id="terrain-object-count">0</span></p>
-          </div>
         </div>
 
         <div id="sidebar-att" class="sidebar-view hidden">
@@ -919,7 +993,6 @@
         </div>
 
         <p id="terrain-editor-meta" class="control-note accent-note">Right-click a selected object.</p>
-
         <div class="section-divider">
           <h3>Transform</h3>
           <label class="field-label" for="terrain-editor-pos-x">Position</label>
@@ -1191,6 +1264,15 @@
 
     <div id="presentation-overlay" class="presentation-overlay hidden"></div>
     <button id="presentation-exit-btn" class="presentation-exit hidden">Exit Presentation</button>
+    <dialog id="about-dialog" class="about-dialog">
+      <form method="dialog">
+        <h2>Mu World Editor V 1.0</h2>
+        <p>Project Original by xulek - Mood LordBilly</p>
+        <p class="control-note">Terrain, objects and ATT area editor for MU Online worlds.</p>
+        <p class="about-credit">Created by <strong>LordBilly Devs</strong></p>
+        <button class="modern-btn btn-primary" type="submit">Close</button>
+      </form>
+    </dialog>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

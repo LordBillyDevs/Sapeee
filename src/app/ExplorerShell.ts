@@ -101,7 +101,24 @@ export function initExplorerShell({
 
     function switchToView(target: ViewerTab): void {
         const button = document.querySelector<HTMLButtonElement>(`.tab-btn[data-view="${target}"]`);
-        button?.click();
+        if (button) {
+            button.click();
+            return;
+        }
+
+        // The map-only layout intentionally removes the legacy tab buttons,
+        // so switch views directly when the shell is running without them.
+        document.querySelectorAll<HTMLElement>('.sidebar-view').forEach(view => {
+            view.classList.toggle('hidden', view.id !== `sidebar-${target}`);
+        });
+        document.querySelectorAll<HTMLElement>('.main-content.view').forEach(view => {
+            view.classList.toggle('hidden', view.id !== `view-${target}`);
+        });
+        explorerStore.setActiveView(target);
+        app.setActive(target === 'bmd');
+        characterScene.setActive(target === 'character');
+        terrainScene.setActive(target === 'terrain');
+        updatePresentationOverlay();
     }
 
     function syncPresentationMode(enabled: boolean): void {

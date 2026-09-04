@@ -1,5 +1,5 @@
 // src/terrain/formats/ATTReader.ts
-import { decryptFileCryptor, xorBuxMask } from '../../crypto/file-cryptor';
+import { decryptFileCryptor, encryptFileCryptor, xorBuxMask } from '../../crypto/file-cryptor';
 import { decryptModulusCryptor } from '../../crypto/modulus-cryptor';
 
 export const TERRAIN_SIZE = 256;
@@ -81,4 +81,32 @@ export function readATT(buffer: ArrayBuffer): TerrainAttributeData {
     }
 
     return { version, index, width, height, isExtended, terrainWall };
+}
+
+export function writeATT(data: TerrainAttributeData): Uint8Array {
+    const tileCount = TERRAIN_SIZE * TERRAIN_SIZE;
+    if (data.terrainWall.length !== tileCount) {
+        throw new Error('ATT: invalid terrain size');
+    }
+    if (!data.isExtended && data.terrainWall.some(value => value > 0xff)) {
+        throw new Error('ATT: standard format cannot store 16-bit flags');
+    }
+
+    const bytesPerTile = data.isExtended ? 2 : 1;
+    const plain = new Uint8Array(4 + tileCount * bytesPerTile);
+    plain[0] = data.version & 0xff;
+    plain[1] = data.index & 0xff;
+    plain[2] = data.width & 0xff;
+    plain[3] = data.height & 0xff;
+    let offset = 4;
+    for (const value of data.terrainWall) {
+        if (data.isExtended) {
+            plain[offset] = value & 0xff;
+            plain[offset + 1] = (value >>> 8) & 0xff;
+            offset += 2;
+        } else {
+            plain[offset++] = value & 0xff;
+        }
+    }
+    return encryptFileCryptor(xorBuxMask(plain));
 }

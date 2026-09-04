@@ -9,13 +9,16 @@ export function createTerrainAttOverlayGeometry(
     attData: TerrainAttributeData,
     sourceGeometry: THREE.BufferGeometry,
     heightOffset: number = ATT_OVERLAY_HEIGHT_OFFSET,
+    includeNormalTiles: boolean = false,
 ): THREE.BufferGeometry {
     const sourcePositions = sourceGeometry.getAttribute('position');
     if (!sourcePositions) {
         return new THREE.BufferGeometry();
     }
 
-    const activeTileCount = countActiveTerrainAttributeTiles(attData);
+    const activeTileCount = includeNormalTiles
+        ? TERRAIN_SIZE * TERRAIN_SIZE
+        : countActiveTerrainAttributeTiles(attData);
     if (activeTileCount === 0) {
         return createEmptyOverlayGeometry();
     }
@@ -30,8 +33,7 @@ export function createTerrainAttOverlayGeometry(
         for (let tx = 0; tx < TERRAIN_SIZE; tx++) {
             const tileIndex = ty * TERRAIN_SIZE + tx;
             const flag = attData.terrainWall[tileIndex] as TWFlags;
-            if (flag === TWFlags.None) continue;
-
+            if (!includeNormalTiles && flag === TWFlags.None) continue;
             const color = getBlendedAttFlagColor(flag);
             const sourceVertexIndices = getTerrainTileSourceVertexIndices(tx, ty);
 
@@ -69,14 +71,6 @@ export function createTerrainAttOverlayGeometry(
     return geometry;
 }
 
-function createEmptyOverlayGeometry(): THREE.BufferGeometry {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(0), 4));
-    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(0), 1));
-    return geometry;
-}
-
 function countActiveTerrainAttributeTiles(attData: TerrainAttributeData): number {
     let count = 0;
     for (const flag of attData.terrainWall) {
@@ -85,7 +79,19 @@ function countActiveTerrainAttributeTiles(attData: TerrainAttributeData): number
     return count;
 }
 
+function createEmptyOverlayGeometry(): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(0), 4));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(0), 1));
+    return geometry;
+}
+
 function getBlendedAttFlagColor(flag: TWFlags): readonly [number, number, number] {
+    if (flag === TWFlags.None) {
+        return [72, 108, 146];
+    }
+
     let r = 0;
     let g = 0;
     let b = 0;
@@ -160,7 +166,8 @@ export class TerrainAttOverlay {
             return;
         }
 
-        this.mesh.geometry = createTerrainAttOverlayGeometry(attData, terrainGeometry);
+        this.mesh.geometry = createTerrainAttOverlayGeometry(attData, terrainGeometry, ATT_OVERLAY_HEIGHT_OFFSET, true);
+        this.mesh.visible = this.visible;
         previousGeometry.dispose();
     }
 

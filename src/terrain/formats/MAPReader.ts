@@ -3,6 +3,7 @@ import { decryptFileCryptor } from '../../crypto/file-cryptor';
 import { decryptModulusCryptor } from '../../crypto/modulus-cryptor';
 import { TERRAIN_SIZE } from './ATTReader';
 import { logger } from '../../utils/Logger';
+import { encryptFileCryptor } from '../../crypto/file-cryptor';
 
 export interface TerrainMappingData {
     version: number;
@@ -42,4 +43,20 @@ export function readMAP(buffer: ArrayBuffer): TerrainMappingData {
     const alpha  = u8.slice(offset, offset + tileCount);
 
     return { version, mapNumber, layer1, layer2, alpha };
+}
+
+/** Serializes the edited mapping in the encrypted format expected by MU clients. */
+export function writeMAP(data: TerrainMappingData): Uint8Array {
+    const tileCount = TERRAIN_SIZE * TERRAIN_SIZE;
+    if (data.layer1.length !== tileCount || data.layer2.length !== tileCount || data.alpha.length !== tileCount) {
+        throw new Error('MAP: invalid layer size');
+    }
+
+    const plain = new Uint8Array(2 + tileCount * 3);
+    plain[0] = data.version & 0xff;
+    plain[1] = data.mapNumber & 0xff;
+    plain.set(data.layer1, 2);
+    plain.set(data.layer2, 2 + tileCount);
+    plain.set(data.alpha, 2 + tileCount * 2);
+    return encryptFileCryptor(plain);
 }

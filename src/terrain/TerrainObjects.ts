@@ -54,6 +54,11 @@ export interface TerrainObjectLoadResult {
 
 export interface TerrainObjectLoadOptions {
     animatedInstancingMode?: TerrainAnimatedInstancingMode;
+    /**
+     * The map editor needs one editable scene graph per BMD so duplicated
+     * objects retain every mesh and material from the source model.
+     */
+    enableInstancing?: boolean;
 }
 
 export interface TerrainAnimatedObjectInstance {
@@ -262,7 +267,7 @@ export async function loadTerrainObjects(
 
             // Place instances. Prefer GPU instancing. Static skinned BMDs are
             // baked once; repeated animated BMDs are baked once per frame/type.
-            const instanced = template.animations.length > 0
+            const instanced = options.enableInstancing !== false && (template.animations.length > 0
                 ? addInstancedAnimatedObjects(
                     group,
                     template,
@@ -282,7 +287,7 @@ export async function loadTerrainObjects(
                     definition,
                     approximateRadius,
                     records,
-                );
+                ));
 
             if (!instanced) {
                 for (const inst of instances) {

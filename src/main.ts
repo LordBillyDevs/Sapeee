@@ -3553,6 +3553,12 @@ class App {
 }
 
 const { explorerStore, initialState } = createExplorerStateStore();
+initialState.activeView = 'terrain';
+explorerStore.setActiveView('terrain');
+document.getElementById('about-btn')?.addEventListener('click', () => {
+    const dialog = document.getElementById('about-dialog') as HTMLDialogElement | null;
+    dialog?.showModal();
+});
 const app = new App(initialState.bmd.rendererBackend);
 const characterScene = new CharacterTestScene();
 const terrainScene = new TerrainScene();

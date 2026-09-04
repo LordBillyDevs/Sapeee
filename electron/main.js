@@ -69,8 +69,8 @@ function createWindow() {
       sandbox: true,
       webSecurity: true,
     },
-    title: 'MU Online BMD Viewer',
-    icon: path.join(__dirname, '../public/vite.svg'),
+    title: 'Mu World Editor - MuDevs Season 21',
+    icon: path.join(__dirname, 'mudevs-logo.ico'),
   });
 
   // Set Content Security Policy

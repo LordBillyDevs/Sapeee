@@ -58,6 +58,33 @@ export function buildTextureAtlas(textures: Map<number, THREE.Texture>): Terrain
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // MAP indices are positional. If a client omits an optional texture file,
+    // leave an opaque fallback in that atlas slot instead of exposing the
+    // transparent canvas background as a large white terrain region.
+    const fallbackTexture = textures.values().next().value as THREE.Texture | undefined;
+    const fallbackImage = fallbackTexture?.image as CanvasImageSource | null | undefined;
+
+    for (let idx = 0; idx < count; idx++) {
+        if (textures.has(idx) || !fallbackImage) continue;
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        const cx = col * cellSize;
+        const cy = row * cellSize;
+        const fallbackSize = fallbackTexture?.image as { width?: number; height?: number };
+        const w = fallbackSize?.width ?? MU_TILE_TEXEL_SIZE;
+        const h = fallbackSize?.height ?? MU_TILE_TEXEL_SIZE;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cx, cy, cellSize, cellSize);
+        ctx.clip();
+        for (let dy = 0; dy < cellSize; dy += h) {
+            for (let dx = 0; dx < cellSize; dx += w) {
+                ctx.drawImage(fallbackImage, cx + dx, cy + dy);
+            }
+        }
+        ctx.restore();
+    }
+
     for (const [idx, tex] of textures) {
         const col = idx % cols;
         const row = Math.floor(idx / cols);
