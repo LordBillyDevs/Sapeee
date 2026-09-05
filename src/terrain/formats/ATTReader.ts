@@ -110,3 +110,25 @@ export function writeATT(data: TerrainAttributeData): Uint8Array {
     }
     return encryptFileCryptor(xorBuxMask(plain));
 }
+
+/**
+ * Writes the unencrypted 3-byte-header format used by server TerrainN.att files.
+ */
+export function writeServerATT(data: TerrainAttributeData): Uint8Array {
+    const tileCount = TERRAIN_SIZE * TERRAIN_SIZE;
+    if (data.terrainWall.length !== tileCount) {
+        throw new Error('ATT: invalid terrain size');
+    }
+    if (data.terrainWall.some(value => value > 0xff)) {
+        throw new Error('ATT server format cannot store 16-bit flags');
+    }
+
+    const plain = new Uint8Array(3 + tileCount);
+    plain[0] = data.version & 0xff;
+    plain[1] = data.width & 0xff;
+    plain[2] = data.height & 0xff;
+    data.terrainWall.forEach((value, index) => {
+        plain[3 + index] = value;
+    });
+    return plain;
+}

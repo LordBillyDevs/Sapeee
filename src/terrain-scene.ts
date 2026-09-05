@@ -41,7 +41,7 @@ import {
     type TerrainAttributeSummary,
 } from './terrain/TerrainAttributeSummary';
 import { buildTerrainGeometry, TERRAIN_SCALE, TERRAIN_WORLD_SIZE } from './terrain/TerrainMesh';
-import { TERRAIN_SIZE, TWFlags, writeATT } from './terrain/formats/ATTReader';
+import { TERRAIN_SIZE, TWFlags, writeATT, writeServerATT } from './terrain/formats/ATTReader';
 import { readOZB } from './terrain/formats/OZBReader';
 import { writeOBJ } from './terrain/formats/OBJWriter';
 import { writeMAP, type TerrainMappingData } from './terrain/formats/MAPReader';
@@ -1429,6 +1429,7 @@ export class TerrainScene {
         document.getElementById('att-editor-select-btn')?.addEventListener('click', () => this.selectAttTileFromInputs());
         document.getElementById('att-editor-apply-btn')?.addEventListener('click', () => this.applyAttTile());
         document.getElementById('att-editor-export-btn')?.addEventListener('click', () => { void this.exportCurrentAtt(); });
+        document.getElementById('att-server-export-btn')?.addEventListener('click', () => { void this.exportServerAtt(); });
 
         window.addEventListener('keydown', (e) => this.handleMovementKey(e, true));
         window.addEventListener('keyup', (e) => this.handleMovementKey(e, false));
@@ -2134,6 +2135,7 @@ export class TerrainScene {
             if (this.attEditorStatusEl) this.attEditorStatusEl.textContent = 'Load a world before exporting ATT.';
             return;
         }
+
         const exportRoot = await openDirectoryDialog();
         if (!exportRoot) return;
         const result = await writeFileInDirectory(
@@ -2143,6 +2145,33 @@ export class TerrainScene {
         );
         if (this.attEditorStatusEl) {
             this.attEditorStatusEl.textContent = result.error ? `ATT export failed: ${result.error}` : `Exported ATT: ${result.path}`;
+        }
+    }
+
+    private async exportServerAtt() {
+        if (!this.loadedAttData || this.loadedWorldNumber === null) {
+            if (this.attEditorStatusEl) this.attEditorStatusEl.textContent = 'Load a world before exporting the server ATT.';
+            return;
+        }
+
+        const exportRoot = await openDirectoryDialog();
+        if (!exportRoot) return;
+
+        try {
+            const result = await writeFileInDirectory(
+                exportRoot,
+                `World${this.loadedWorldNumber}/Terrain${this.loadedWorldNumber}.att`,
+                writeServerATT(this.loadedAttData),
+            );
+            if (this.attEditorStatusEl) {
+                this.attEditorStatusEl.textContent = result.error
+                    ? `Server ATT export failed: ${result.error}`
+                    : `Exported server ATT: ${result.path}`;
+            }
+        } catch (error) {
+            if (this.attEditorStatusEl) {
+                this.attEditorStatusEl.textContent = `Server ATT export failed: ${error instanceof Error ? error.message : String(error)}`;
+            }
         }
     }
 

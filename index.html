@@ -25,25 +25,6 @@
       <div id="startup-splash-status" class="startup-splash-status">Preparing map workspace…</div>
     </div>
   </div>
-  <section id="license-gate" class="license-gate hidden" aria-labelledby="license-title">
-    <div class="license-card">
-      <div class="startup-splash-kicker">MUDEVS · LICENSED EDITION</div>
-      <h1 id="license-title">Iniciar sesión</h1>
-      <p class="control-note">Introduce las credenciales autorizadas para abrir el editor.</p>
-      <form id="license-form" class="license-form">
-        <label class="field-label" for="license-email">Email</label>
-        <input id="license-email" class="frame-input full-width" type="email" autocomplete="username" required>
-        <label class="field-label space-top-sm" for="license-password">Contraseña</label>
-        <input id="license-password" class="frame-input full-width" type="password" autocomplete="current-password" required>
-        <label class="checkbox-control space-top-sm">
-          <span>Guardar credenciales</span>
-          <input id="license-remember" type="checkbox" class="modern-checkbox">
-        </label>
-        <button id="license-submit" class="modern-btn btn-primary full-width space-top-sm" type="submit">Validar licencia</button>
-      </form>
-      <p id="license-status" class="control-note license-status">Conectando con el servidor de licencias…</p>
-    </div>
-  </section>
   <div id="app">
 
     <div class="top-bar">
@@ -593,6 +574,7 @@
             <button id="att-editor-apply-btn" class="modern-btn btn-primary full-width space-top-sm">Apply Area Flags</button>
             <button id="att-overlay-toggle" class="modern-btn full-width space-top-sm">Show ATT Overlay</button>
             <button id="att-editor-export-btn" class="modern-btn full-width space-top-sm">Export Edited ATT</button>
+            <button id="att-server-export-btn" class="modern-btn full-width space-top-sm">Export ATT for Server</button>
             <p id="att-editor-status" class="control-note"></p>
           </div>
 
@@ -1322,8 +1304,8 @@
       <form method="dialog">
         <h2>Mu World Editor V 1.0</h2>
         <p>Project Original by xulek - Mood LordBilly</p>
-        <p class="control-note">Terrain, objects and ATT area editor for MU Online worlds.</p>
-        <p class="about-credit">Created by <strong>LordBilly Devs</strong></p>
+        <p class="control-note"></p>
+        <p class="about-credit">Moded by <strong>LordBilly</strong></p>
         <button class="modern-btn btn-primary" type="submit">Close</button>
       </form>
     </dialog>

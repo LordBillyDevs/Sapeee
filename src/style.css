@@ -190,54 +190,6 @@ body {
   letter-spacing: 0.04em;
 }
 
-.license-gate {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: grid;
-  place-items: center;
-  padding: 1.5rem;
-  background: rgba(5, 2, 12, 0.94);
-  backdrop-filter: blur(18px);
-}
-
-.license-gate.hidden {
-  display: none;
-}
-
-.license-card {
-  width: min(28rem, 100%);
-  padding: 2rem;
-  border: 1px solid rgba(197, 108, 255, 0.42);
-  border-radius: 16px;
-  background: linear-gradient(145deg, rgba(25, 10, 42, 0.98), rgba(9, 6, 22, 0.98));
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.58), 0 0 36px rgba(111, 32, 183, 0.24);
-}
-
-.license-card h1 {
-  margin: 0.6rem 0 0;
-  font: 700 1.35rem var(--font-display);
-  color: var(--text-main);
-}
-
-.license-form {
-  margin-top: 1.4rem;
-}
-
-.license-status {
-  min-height: 1.2rem;
-  margin-top: 0.8rem;
-}
-
-.license-error {
-  color: #ff9b9b;
-}
-
-body.license-locked #app {
-  pointer-events: none;
-  user-select: none;
-}
-
 body::before {
   content: '';
   position: fixed;

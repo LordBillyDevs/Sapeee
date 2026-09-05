@@ -139,7 +139,9 @@ export function initExplorerShell({
         const state = explorerStore.getState();
         const parts: string[] = [];
         if (state.activeView === 'terrain') {
-            const worldLabel = state.terrain.lastWorldNumber !== null ? `World ${state.terrain.lastWorldNumber}` : 'World Viewer';
+            const worldLabel = state.terrain.lastWorldNumber !== null
+                ? `World ${state.terrain.lastWorldNumber}`
+                : 'World Viewer';
             parts.push(worldLabel);
             if (state.terrain.selectedObject?.displayName) {
                 parts.push(state.terrain.selectedObject.displayName);
