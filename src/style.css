@@ -41,22 +41,12 @@ body {
   height: 100%;
 }
 
-.language-picker {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
-.language-picker select {
-  min-width: 7.5rem;
-  padding: 0.25rem 0.4rem;
-}
-
-.top-bar .sidebar-tabs {
-  overflow-x: auto;
+/* This build is dedicated to world editing; other legacy workspaces stay out
+   of the navigation while their shared runtime remains available. */
+.top-bar .tab-btn:not([data-view="terrain"]),
+.sidebar-content > .sidebar-view:not(#sidebar-terrain),
+.main-content.view:not(#view-terrain) {
+  display: none !important;
 }
 
 .top-bar-menu {
@@ -901,62 +891,6 @@ input[type='color'] {
   height: 100%;
 }
 
-.terrain-texture-palette {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-  gap: 0.45rem;
-  max-height: 260px;
-  margin-top: 0.6rem;
-  padding: 0.45rem;
-  overflow-y: auto;
-  border: 1px solid rgba(157, 185, 224, 0.14);
-  border-radius: 9px;
-  background: rgba(5, 10, 18, 0.72);
-}
-
-.terrain-texture-swatch {
-  min-width: 0;
-  padding: 0.25rem;
-  border: 1px solid rgba(157, 185, 224, 0.16);
-  border-radius: 7px;
-  color: var(--text-muted);
-  background: rgba(15, 25, 40, 0.76);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
-}
-
-.terrain-texture-swatch:hover {
-  border-color: rgba(49, 215, 255, 0.62);
-  background: rgba(18, 39, 60, 0.92);
-  transform: translateY(-1px);
-}
-
-.terrain-texture-swatch.active {
-  border-color: var(--accent-primary);
-  background: rgba(14, 73, 100, 0.62);
-  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.2);
-}
-
-.terrain-texture-swatch img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 5px;
-  object-fit: cover;
-  image-rendering: auto;
-  background: #101923;
-}
-
-.terrain-texture-swatch-label {
-  display: block;
-  margin-top: 0.25rem;
-  overflow: hidden;
-  font: 0.62rem/1.15 var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 #status,
 #character-status,
 #terrain-status-bar {
@@ -1745,6 +1679,60 @@ body.presentation-mode .sidebar {
 body.presentation-mode #att-status-bar {
   opacity: 0;
   pointer-events: none;
+}
+
+.terrain-texture-palette {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.35rem;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 0.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-inset);
+}
+
+.terrain-texture-swatch {
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.terrain-texture-swatch:hover,
+.terrain-texture-swatch:focus-visible {
+  border-color: var(--accent-primary);
+}
+
+.terrain-texture-swatch img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.terrain-texture-swatch span {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 1px 3px;
+  border-radius: 2px;
+  color: #fff;
+  background: rgb(0 0 0 / 70%);
+  font: 0.62rem var(--font-mono);
+}
+
+.terrain-texture-palette-empty {
+  grid-column: 1 / -1;
+  padding: 0.5rem;
+  color: var(--text-dim);
+  font-size: 0.75rem;
 }
 
 /* ============================================================

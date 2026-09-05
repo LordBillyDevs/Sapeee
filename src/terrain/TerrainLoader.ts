@@ -12,7 +12,6 @@ import {
     type TerrainMaterialMode,
 } from './TerrainTexturing';
 import { convertOzjToDataUrl } from '../ozj-loader';
-import { convertTgaToDataUrl } from '../bmd-loader';
 import { logger } from '../utils/Logger';
 
 export interface TerrainResult {
@@ -23,12 +22,6 @@ export interface TerrainResult {
     terrainAttributeData: TerrainAttributeData;
     heightData: OZBData;
     lightData: OZBData | null;
-    textureEntries: TerrainTextureEntry[];
-}
-
-export interface TerrainTextureEntry {
-    index: number;
-    file: File;
 }
 
 // Default terrain texture filenames — matches Client.Main TerrainData.GetDefaultTextureMappings().
@@ -61,10 +54,7 @@ const DEFAULT_TEXTURE_FILES: Record<number, string> = {
 export class TerrainLoader {
     private textureLoader = new THREE.TextureLoader();
 
-    async load(files: Map<string, File>, options?: {
-        materialMode?: TerrainMaterialMode;
-        textureIndexByFileName?: ReadonlyMap<string, number>;
-    }): Promise<TerrainResult> {
+    async load(files: Map<string, File>, options?: { materialMode?: TerrainMaterialMode }): Promise<TerrainResult> {
         const materialMode = options?.materialMode ?? 'shader';
         // Classify files by type
         const attFile = this.findFile(files, /EncTerrain\d*\.att$/i) ?? this.findFile(files, /\.att$/i);
@@ -96,7 +86,7 @@ export class TerrainLoader {
             : null;
 
         // Load terrain textures
-        const { textureMap, textureEntries } = await this.loadTerrainTextures(files, mapData, options?.textureIndexByFileName);
+        const textureMap = await this.loadTerrainTextures(files, mapData);
 
         // Build atlas
         const atlas = buildTextureAtlas(textureMap);
@@ -111,12 +101,11 @@ export class TerrainLoader {
             ? await createTerrainAtlasGeometryMesh(geometry, attData, atlas, mapData, !!lightData)
             : new THREE.Mesh(geometry, createTerrainMaterial(atlas, mapData, !!lightData, materialMode));
 
+        if (materialMode === 'baked') {
+            atlas.texture.dispose();
+        }
+
         mesh.name = 'terrain';
-        mesh.userData.terrainAtlas = atlas;
-        mesh.userData.terrainAtlasOwned = materialMode === 'baked';
-        mesh.userData.terrainMaterialMode = materialMode;
-        mesh.userData.terrainUseLightmap = !!lightData;
-        mesh.userData.terrainSourceGeometry = geometry;
 
         return {
             mesh,
@@ -126,7 +115,6 @@ export class TerrainLoader {
             terrainAttributeData: attData,
             heightData,
             lightData,
-            textureEntries,
         };
     }
 
@@ -185,10 +173,8 @@ export class TerrainLoader {
     private async loadTerrainTextures(
         files: Map<string, File>,
         mapData: TerrainMappingData,
-        textureIndexByFileName?: ReadonlyMap<string, number>,
-    ): Promise<{ textureMap: Map<number, THREE.Texture>; textureEntries: TerrainTextureEntry[] }> {
+    ): Promise<Map<number, THREE.Texture>> {
         const textureMap = new Map<number, THREE.Texture>();
-        const textureEntries = this.resolveTerrainTextureFiles(files, mapData, textureIndexByFileName);
 
         // Load every terrain texture present in the selected World folder, not
         // only indices currently referenced by MAP. This keeps newly painted
@@ -198,7 +184,9 @@ export class TerrainLoader {
             usedIndices.add(mapData.layer1[i]);
             usedIndices.add(mapData.layer2[i]);
         }
-        textureEntries.forEach(entry => usedIndices.add(entry.index));
+        for (const index of this.getAvailableTextureIndices(files)) {
+            usedIndices.add(index);
+        }
 
         logger.groupDebug('Terrain texture loading');
         const sortedIndices = [...usedIndices].sort((a, b) => a - b);
@@ -206,78 +194,74 @@ export class TerrainLoader {
 
         // Try to load each texture
         for (const idx of sortedIndices) {
-            const entry = textureEntries.find(candidate => candidate.index === idx);
-            const tex = entry ? await this.loadTextureFile(entry.file).catch(error => {
-                logger.error(`Terrain texture ${idx} failed to decode: ${entry.file.name}`, error);
-                return null;
-            }) : null;
+            const tex = await this.tryLoadTexture(files, idx);
             if (tex) {
                 textureMap.set(idx, tex);
             } else {
-                if (entry) logger.warn(`Terrain texture ${idx} was not found or could not be decoded.`);
+                logger.warn(`Terrain texture ${idx} was not found.`);
             }
         }
         logger.groupEnd();
 
-        return {
-            textureMap,
-            textureEntries: textureEntries.filter(entry => textureMap.has(entry.index)),
-        };
+        return textureMap;
     }
 
-    private resolveTerrainTextureFiles(
-        files: Map<string, File>,
-        mapData: TerrainMappingData,
-        textureIndexByFileName?: ReadonlyMap<string, number>,
-    ): TerrainTextureEntry[] {
-        const entries = new Map<number, File>();
+    private getAvailableTextureIndices(files: Map<string, File>): Set<number> {
+        const indices = new Set<number>();
         for (const [index, filename] of Object.entries(DEFAULT_TEXTURE_FILES)) {
-            const file = this.findTextureFile(files, filename);
-            if (file) entries.set(Number(index), file);
+            if (this.findFileByName(files, filename)) {
+                indices.add(Number(index));
+            }
         }
         for (let index = 14; index <= 29; index++) {
             const extIndex = (index - 13).toString().padStart(2, '0');
-            const file = this.findTextureFile(files, `ExtTile${extIndex}.ozj`);
-            if (file) entries.set(index, file);
-        }
-        const usedByMap = new Set<number>([...mapData.layer1, ...mapData.layer2]);
-        const reserved = new Set<number>([...entries.keys(), ...usedByMap]);
-        const arbitraryFiles = [...files.entries()]
-            .filter(([key, file]) => this.isTerrainTextureFile(key, file))
-            .map(([, file]) => file)
-            .filter(file => ![...entries.values()].includes(file))
-            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-
-        let nextIndex = 0;
-        for (const file of arbitraryFiles) {
-            const preferredIndex = textureIndexByFileName?.get(file.name.toLowerCase());
-            if (
-                preferredIndex !== undefined &&
-                preferredIndex >= 0 &&
-                preferredIndex < 255 &&
-                !entries.has(preferredIndex)
-            ) {
-                entries.set(preferredIndex, file);
-                reserved.add(preferredIndex);
-                continue;
+            if (this.findFileByName(files, `ExtTile${extIndex}.ozj`)) {
+                indices.add(index);
             }
-            while (reserved.has(nextIndex) || nextIndex === 255) nextIndex++;
-            if (nextIndex > 254) break;
-            entries.set(nextIndex, file);
-            reserved.add(nextIndex);
-            nextIndex++;
         }
-
-        return [...entries.entries()]
-            .map(([index, file]) => ({ index, file }))
-            .sort((a, b) => a.index - b.index);
+        return indices;
     }
 
-    private isTerrainTextureFile(key: string, file: File): boolean {
-        if (!/\.(jpg|jpeg|png|tga|ozj|ozt)$/i.test(file.name)) return false;
-        const normalized = key.replace(/\\/g, '/').toLowerCase();
-        if (normalized.startsWith('object')) return false;
-        return normalized.includes('/textures/') || normalized.split('/').length <= 2;
+    private async tryLoadTexture(files: Map<string, File>, idx: number): Promise<THREE.Texture | null> {
+        // Build candidate filenames in priority order.
+        const candidates: string[] = [];
+
+        // 1. Exact filename from defaults (preserves correct .ozj vs .ozt per reference).
+        const defaultFile = DEFAULT_TEXTURE_FILES[idx];
+        if (defaultFile) {
+            candidates.push(defaultFile);
+        }
+
+        // 2. ExtTile01..16 for indices 14..29 (C# TerrainLoader: textureMapFiles[13+i]).
+        if (idx >= 14 && idx <= 29) {
+            const extIdx = (idx - 14 + 1).toString().padStart(2, '0');
+            candidates.push(`ExtTile${extIdx}.ozj`);
+        }
+
+        // 3. Fallback: try the base name (without ext) with common extensions.
+        if (defaultFile) {
+            const baseName = defaultFile.replace(/\.[^.]+$/, '');
+            for (const ext of ['.ozj', '.ozt', '.jpg', '.png']) {
+                const name = baseName + ext;
+                if (name !== defaultFile) candidates.push(name);
+            }
+        }
+
+        for (const fullName of candidates) {
+            const file = this.findFileByName(files, fullName);
+            if (file) {
+                try {
+                    const tex = await this.loadTextureFile(file);
+                    const img = tex.image as { width?: number; height?: number };
+                    logger.debug(`Terrain texture ${idx}: ${file.name} (${img?.width}x${img?.height})`);
+                    return tex;
+                } catch (e) {
+                    logger.error(`Terrain texture ${idx} failed to decode: ${file.name}`, e);
+                }
+            }
+        }
+
+        return null;
     }
 
     private findFileByName(files: Map<string, File>, name: string): File | undefined {
@@ -290,25 +274,12 @@ export class TerrainLoader {
         return undefined;
     }
 
-    private findTextureFile(files: Map<string, File>, name: string): File | undefined {
-        const baseName = name.replace(/\.[^.]+$/, '');
-        const extensions = [name.split('.').pop() || '', 'ozj', 'ozt', 'jpg', 'jpeg', 'png', 'tga'];
-        for (const extension of extensions) {
-            if (!extension) continue;
-            const file = this.findFileByName(files, `${baseName}.${extension}`);
-            if (file) return file;
-        }
-        return undefined;
-    }
-
     private async loadTextureFile(file: File): Promise<THREE.Texture> {
         const ext = file.name.split('.').pop()!.toLowerCase();
         let dataUrl: string;
 
         if (ext === 'ozj' || ext === 'ozt') {
             dataUrl = await convertOzjToDataUrl(await file.arrayBuffer(), ext as 'ozj' | 'ozt');
-        } else if (ext === 'tga') {
-            dataUrl = await convertTgaToDataUrl(await file.arrayBuffer());
         } else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') {
             dataUrl = URL.createObjectURL(file);
         } else {

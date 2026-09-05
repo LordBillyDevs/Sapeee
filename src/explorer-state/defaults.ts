@@ -44,7 +44,7 @@ export function createDefaultCharacterSessionState(): CharacterSessionState {
 
 export function createDefaultTerrainSessionState(): TerrainSessionState {
   return {
-    rendererBackend: 'auto',
+    rendererBackend: 'webgl',
     lastWorldNumber: null,
     availableWorldNumbers: [],
     cameraPosition: null,
@@ -56,13 +56,12 @@ export function createDefaultTerrainSessionState(): TerrainSessionState {
     showObjects: true,
     brightness: 1.5,
     objectDistance: 6000,
-    performanceMode: false,
   };
 }
 
 export function createDefaultBmdSessionState(): BmdSessionState {
   return {
-    rendererBackend: 'auto',
+    rendererBackend: 'webgl',
     animationsEnabled: true,
     autoRotate: true,
     showSkeleton: false,
@@ -79,7 +78,7 @@ export function createDefaultBmdSessionState(): BmdSessionState {
 export function createDefaultViewerSessionState(): ViewerSessionState {
   return {
     version: STATE_VERSION,
-    activeView: 'terrain',
+    activeView: 'bmd',
     presentationMode: false,
     bookmarks: [],
     recentWorlds: [],

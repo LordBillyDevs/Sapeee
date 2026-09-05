@@ -21,15 +21,8 @@
         <span class="top-bar-eyebrow">For MuOnline Community</span>
         <span class="top-bar-title">Mu World Editor V1.0</span>
       </div>
-      <nav class="sidebar-tabs" aria-label="Workspace">
-        <button class="tab-btn active" data-view="terrain" type="button" data-i18n="worldTerrain">World / Terrain</button>
-      </nav>
-      <label class="language-picker" for="language-selector">
-        <span data-i18n="language">Language</span>
-        <select id="language-selector" class="animation-dropdown"></select>
-      </label>
       <div class="top-bar-menu" aria-label="Application menu">
-        <button id="about-btn" class="top-bar-menu-btn" type="button" data-i18n="about">About</button>
+        <button id="about-btn" class="top-bar-menu-btn" type="button">About</button>
       </div>
       <div class="top-bar-actions">
         <div class="sidebar-view-badge" id="sidebar-view-badge">Map workspace</div>
@@ -82,11 +75,6 @@
                   class="file-input-hidden" />
               </div>
               <button id="remove-textures-btn" class="modern-btn space-top-xs">Remove Textures</button>
-              <div class="row-inline space-top-xs">
-                <button id="import-texture-package-btn" class="modern-btn">Import Package</button>
-                <button id="export-texture-package-btn" class="modern-btn">Export Package</button>
-                <input id="texture-package-input" type="file" accept=".mutex,.json" class="file-input-hidden">
-              </div>
             </div>
           </div>
 
@@ -571,13 +559,6 @@
             <button id="att-editor-apply-btn" class="modern-btn btn-primary full-width space-top-sm">Apply Area Flags</button>
             <button id="att-overlay-toggle" class="modern-btn full-width space-top-sm">Show ATT Overlay</button>
             <button id="att-editor-export-btn" class="modern-btn full-width space-top-sm">Export Edited ATT</button>
-            <div class="section-divider space-top-sm">
-              <label for="terrain-level-target" class="field-label" data-i18n="levelTerrain">Level terrain</label>
-              <div class="row-inline">
-                <input id="terrain-level-target" type="number" class="frame-input input-w-sm" min="0" max="255" placeholder="Auto">
-                <button id="terrain-level-btn" class="modern-btn">Level brush</button>
-              </div>
-            </div>
             <p id="att-editor-status" class="control-note"></p>
           </div>
 
@@ -601,26 +582,20 @@
                 <input id="terrain-tile-x" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="X">
                 <input id="terrain-tile-z" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="Z">
               </div>
-              <div class="row-inline space-top-sm">
-                <button id="terrain-texture-import-btn" class="modern-btn" type="button">Import textures</button>
-                <button id="terrain-texture-package-btn" class="modern-btn" type="button">Import package</button>
-                <input id="terrain-texture-import-input" type="file" accept=".jpg,.jpeg,.png,.tga,.ozj,.ozt" multiple class="file-input-hidden">
-                <input id="terrain-texture-package-input" type="file" accept=".mutex,.json" class="file-input-hidden">
-              </div>
-              <p id="terrain-texture-import-status" class="control-note">Load a world, then add map textures here.</p>
-              <div id="terrain-texture-palette" class="terrain-texture-palette" role="listbox" aria-label="Terrain texture palette"></div>
               <label class="checkbox-control space-top-sm">
                 <span>Paint selected tile</span>
                 <input id="terrain-tile-brush-enabled" type="checkbox" class="modern-checkbox">
               </label>
               <div class="brightness-control space-top-sm">
-                <label for="terrain-tile-brush-size">Texture brush size <span id="terrain-tile-brush-size-value">2 tiles</span></label>
+                <label for="terrain-tile-brush-size">Brush size <span id="terrain-tile-brush-size-value">2 tiles</span></label>
                 <input id="terrain-tile-brush-size" type="range" class="modern-slider" min="1" max="16" step="1" value="2">
               </div>
               <label class="field-label space-top-sm" for="terrain-layer1-select">Base texture</label>
               <select id="terrain-layer1-select" class="animation-dropdown full-width"></select>
               <label class="field-label space-top-sm" for="terrain-layer2-select">Overlay texture</label>
               <select id="terrain-layer2-select" class="animation-dropdown full-width"></select>
+              <label class="field-label space-top-sm">Loaded textures</label>
+              <div id="terrain-texture-palette" class="terrain-texture-palette" aria-label="Loaded terrain textures"></div>
               <label class="field-label space-top-sm" for="terrain-paint-layer">Paint layer</label>
               <select id="terrain-paint-layer" class="animation-dropdown full-width">
                 <option value="both">Both layers</option>
@@ -670,10 +645,6 @@
             <div class="checkbox-control">
               <label for="terrain-show-objects">Show Objects</label>
               <input type="checkbox" id="terrain-show-objects" class="modern-checkbox" checked>
-            </div>
-            <div class="checkbox-control">
-              <label for="terrain-performance-mode" data-i18n="performance">Performance mode</label>
-              <input type="checkbox" id="terrain-performance-mode" class="modern-checkbox">
             </div>
             <div class="checkbox-control">
               <label for="terrain-animations-enabled">Enable Animations</label>
@@ -1000,10 +971,9 @@
 
       <aside id="folder-browser-panel" class="folder-browser-panel">
         <div class="folder-browser-header">
-          <span class="folder-browser-title" data-i18n="modelBrowser">Model Browser</span>
+          <span class="folder-browser-title">Model Browser</span>
           <button id="folder-browser-close" class="folder-browser-close" title="Close panel">✕</button>
         </div>
-        <input id="folder-browser-search" type="search" class="animation-dropdown full-width" placeholder="Search BMD models…">
         <div id="folder-browser-count" class="folder-browser-count"></div>
         <div id="folder-browser-list" class="folder-browser-list"></div>
       </aside>
