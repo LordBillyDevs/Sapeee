@@ -52,6 +52,7 @@ import './style.css';
 import './styles/log.css';
 import './styles/panels.css';
 import { initPanels } from './panel-resize';
+import { initLicenseGate } from './license';
 
 initPanels();
 
@@ -3572,7 +3573,7 @@ initExplorerShell({
     initialState,
 });
 
-function initStartupSplash(): void {
+function initStartupSplash(onComplete?: () => void): void {
       const splash = document.getElementById('startup-splash');
       const progress = document.getElementById('startup-splash-progress-bar');
       const status = document.getElementById('startup-splash-status');
@@ -3597,10 +3598,13 @@ function initStartupSplash(): void {
           }
           window.setTimeout(() => {
               splash.classList.add('is-hidden');
-              window.setTimeout(() => splash.remove(), 520);
+              window.setTimeout(() => {
+                  splash.remove();
+                  onComplete?.();
+              }, 520);
           }, 600);
       };
       window.requestAnimationFrame(advance);
 }
 
-initStartupSplash();
+initStartupSplash(initLicenseGate);

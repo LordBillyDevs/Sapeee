@@ -2,12 +2,14 @@
 const { app, BrowserWindow, dialog, ipcMain, session, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const https = require('https');
 const { resolveDataFilePath, resolveDataRootFromPaths } = require('./data-root-resolver');
 const { searchTextureFiles } = require('./texture-search');
 
 let mainWindow;
 const missingReadFiles = new Set();
 const TERRAIN_OBJECT_OVERRIDES_FILE = 'terrain-object-overrides.json';
+const LICENSE_FILE_URL = 'https://lordbillytools.com.ar/Licencias/Licencias.txt';
 
 function isMissingPathError(error) {
   return error && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
@@ -15,6 +17,22 @@ function isMissingPathError(error) {
 
 function getTerrainObjectOverridesPath() {
   return path.join(app.getPath('userData'), TERRAIN_OBJECT_OVERRIDES_FILE);
+}
+
+function downloadLicenseFile() {
+  return new Promise((resolve, reject) => {
+    https.get(LICENSE_FILE_URL, response => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`License file returned HTTP ${response.statusCode || 'unknown'}.`));
+        return;
+      }
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => resolve(body));
+    }).on('error', reject);
+  });
 }
 
 async function readDirectoryFilesRecursive(rootDir, keyPrefix) {
@@ -74,6 +92,13 @@ function createWindow() {
     icon: path.join(__dirname, 'mudevs-logo.ico'),
   });
 
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.maximize();
+      mainWindow.focus();
+    }
+  });
+
   // Set Content Security Policy
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -87,7 +112,7 @@ function createWindow() {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data: blob:; " +
           "media-src 'self' data: blob:; " +
-          "connect-src 'self' http://localhost:5173 ws://localhost:5173; " +
+          "connect-src 'self' http://localhost:5173 ws://localhost:5173 https://lordbillytools.com.ar; " +
           "object-src 'none'; base-uri 'self'; frame-src 'none';"
         ]
       }
@@ -124,6 +149,8 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+ipcMain.handle('license:read', async () => downloadLicenseFile());
 
 // Handle file selection dialog
 ipcMain.handle('dialog:openFile', async (event, options) => {

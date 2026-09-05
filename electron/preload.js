@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   // Check if running in Electron
   isElectron: true,
+  readLicenseFile: () => ipcRenderer.invoke('license:read'),
 
   // Open file dialog and return file path
   openFile: (options) => ipcRenderer.invoke('dialog:openFile', options),

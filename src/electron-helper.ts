@@ -26,6 +26,7 @@ export interface FileWriteResult {
 // Type definitions for Electron API
 interface ElectronAPI {
   isElectron: boolean;
+  readLicenseFile: () => Promise<string>;
   openFile: (options?: { filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
   openFiles: (options?: { filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string[]>;
   openDirectory: () => Promise<string | null>;
