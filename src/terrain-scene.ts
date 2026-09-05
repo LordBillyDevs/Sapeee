@@ -324,6 +324,8 @@ export class TerrainScene {
     private loadedAttFileName: string | null = null;
     private readonly undoHistory: TerrainEditSnapshot[] = [];
     private readonly redoHistory: TerrainEditSnapshot[] = [];
+    private readonly objectUndoHistory: OBJData[] = [];
+    private readonly objectRedoHistory: OBJData[] = [];
 
     constructor() {
         this.initThree();
@@ -716,6 +718,44 @@ export class TerrainScene {
         this.restoreTerrainEdit(snapshot);
     }
 
+    private captureObjectEdit(): void {
+        if (!this.loadedObjectsData) return;
+        this.objectUndoHistory.push(JSON.parse(JSON.stringify(this.loadedObjectsData)) as OBJData);
+        if (this.objectUndoHistory.length > 30) this.objectUndoHistory.shift();
+        this.objectRedoHistory.length = 0;
+    }
+
+    private async restoreObjectEdit(snapshot: OBJData, targetHistory: OBJData[]): Promise<void> {
+        if (!this.objectsGroup || this.loadedWorldNumber === null) return;
+        if (this.loadedObjectsData) targetHistory.push(JSON.parse(JSON.stringify(this.loadedObjectsData)) as OBJData);
+        const result = await loadTerrainObjects(snapshot, this.currentWorldFiles, this.loadedWorldNumber, undefined, {
+            animatedInstancingMode: getTerrainAnimatedInstancingModeForBackend(this.rendererActiveBackend),
+            enableInstancing: false,
+        });
+        this.scene.remove(this.objectsGroup);
+        this.disposeTerrainObject(this.objectsGroup);
+        this.objectsGroup = result.group;
+        this.scene.add(this.objectsGroup);
+        this.loadedObjectsData = snapshot;
+        this.objectRecords = result.records;
+        this.animatedObjectInstances = result.animatedInstances;
+        this.clearSelection();
+        this.updateTerrainObjectSelect();
+        this.rebuildObjectCullingIndex();
+        this.updateObjectDistanceCulling(true);
+        this.emitStateChanged();
+    }
+
+    private undoObjectEdit(): void {
+        const snapshot = this.objectUndoHistory.pop();
+        if (snapshot) void this.restoreObjectEdit(snapshot, this.objectRedoHistory);
+    }
+
+    private redoObjectEdit(): void {
+        const snapshot = this.objectRedoHistory.pop();
+        if (snapshot) void this.restoreObjectEdit(snapshot, this.objectUndoHistory);
+    }
+
     private isTransformGizmoHitAtClientPoint(clientX: number, clientY: number): boolean {
         const helper = this.transformControlsHelper;
         if (!helper) return false;
@@ -1103,8 +1143,18 @@ export class TerrainScene {
         this.terrainGridEl?.addEventListener('change', () => {
             if (this.terrainGrid) this.terrainGrid.visible = this.terrainGridEl?.checked === true;
         });
-        document.getElementById('terrain-undo-btn')?.addEventListener('click', () => this.undoTerrainEdit());
-        document.getElementById('terrain-redo-btn')?.addEventListener('click', () => this.redoTerrainEdit());
+        document.querySelectorAll<HTMLElement>('.terrain-history-undo').forEach(button => {
+            button.addEventListener('click', () => {
+                if (button.closest('#terrain-object-section')) this.undoObjectEdit();
+                else this.undoTerrainEdit();
+            });
+        });
+        document.querySelectorAll<HTMLElement>('.terrain-history-redo').forEach(button => {
+            button.addEventListener('click', () => {
+                if (button.closest('#terrain-object-section')) this.redoObjectEdit();
+                else this.redoTerrainEdit();
+            });
+        });
         this.terrainGridEl?.addEventListener('change', () => {
             if (this.terrainGrid) this.terrainGrid.visible = this.terrainGridEl?.checked === true;
         });
@@ -2346,6 +2396,7 @@ export class TerrainScene {
             this.setObjectEditorStatus('Select an object before removing it.');
             return;
         }
+        this.captureObjectEdit();
 
         const objectId = record.selection.objectId;
         if (record.object3D) {
@@ -2724,6 +2775,7 @@ export class TerrainScene {
     private applyObjectEditorTransform() {
         const record = this.selectedObjectRecord;
         if (!record) return;
+        this.captureObjectEdit();
 
         const nextPosition = {
             x: parseFloat(this.objectEditorPosXEl?.value || `${record.selection.position.x}`),
@@ -2750,6 +2802,7 @@ export class TerrainScene {
             this.setObjectEditorStatus('Select an object before duplicating it.');
             return;
         }
+        this.captureObjectEdit();
 
         const nextPosition = destination ?? {
             ...source.selection.position,

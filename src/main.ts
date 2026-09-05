@@ -3571,3 +3571,36 @@ initExplorerShell({
     explorerStore,
     initialState,
 });
+
+function initStartupSplash(): void {
+      const splash = document.getElementById('startup-splash');
+      const progress = document.getElementById('startup-splash-progress-bar');
+      const status = document.getElementById('startup-splash-status');
+      if (!splash || !progress) return;
+
+      const stages = [
+          [28, 'Loading editor core…'],
+          [54, 'Preparing terrain workspace…'],
+          [78, 'Loading visual systems…'],
+          [100, 'Ready'],
+      ] as const;
+      let stageIndex = 0;
+      const advance = () => {
+          const stage = stages[stageIndex];
+          if (!stage) return;
+          progress.style.width = `${stage[0]}%`;
+          if (status) status.textContent = stage[1];
+          stageIndex += 1;
+          if (stageIndex < stages.length) {
+              window.setTimeout(advance, 1500);
+              return;
+          }
+          window.setTimeout(() => {
+              splash.classList.add('is-hidden');
+              window.setTimeout(() => splash.remove(), 520);
+          }, 600);
+      };
+      window.requestAnimationFrame(advance);
+}
+
+initStartupSplash();

@@ -14,6 +14,17 @@
 </head>
 
 <body>
+  <div id="startup-splash" class="startup-splash" role="status" aria-live="polite">
+    <div class="startup-splash-art" aria-hidden="true"></div>
+    <div class="startup-splash-vignette" aria-hidden="true"></div>
+    <div class="startup-splash-content">
+      <div class="startup-splash-kicker">MUDEVS · SEASON 21</div>
+      <div class="startup-splash-progress">
+        <div id="startup-splash-progress-bar"></div>
+      </div>
+      <div id="startup-splash-status" class="startup-splash-status">Preparing map workspace…</div>
+    </div>
+  </div>
   <div id="app">
 
     <div class="top-bar">
@@ -519,6 +530,10 @@
               <input id="att-editor-z" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="Z">
               <button id="att-editor-select-btn" class="modern-btn">Read</button>
             </div>
+            <div class="row-inline space-top-sm terrain-history-actions">
+              <button type="button" class="modern-btn terrain-history-undo">Undo</button>
+              <button type="button" class="modern-btn terrain-history-redo">Redo</button>
+            </div>
             <div class="att-editor-flags">
               <label><input type="checkbox" data-att-editor-flag="1"> Safe Zone</label>
               <label><input type="checkbox" data-att-editor-flag="2"> Character Area</label>
@@ -562,54 +577,59 @@
             <p id="att-editor-status" class="control-note"></p>
           </div>
 
+          <div class="control-section" id="terrain-texture-editor-section"
+            data-menu-description="Select a terrain tile in the viewport or enter its coordinates, then change the texture layers and blend alpha."
+            data-menu-badge="Edit">
+            <h3>Terrain Textures</h3>
+            <p class="control-note">Click the ground to select a tile.</p>
+            <div class="row-inline">
+              <input id="terrain-tile-x" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="X">
+              <input id="terrain-tile-z" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="Z">
+            </div>
+            <label class="checkbox-control space-top-sm">
+              <span>Paint selected tile</span>
+              <input id="terrain-tile-brush-enabled" type="checkbox" class="modern-checkbox">
+            </label>
+            <div class="brightness-control space-top-sm">
+              <label for="terrain-tile-brush-size">Brush size <span id="terrain-tile-brush-size-value">2 tiles</span></label>
+              <input id="terrain-tile-brush-size" type="range" class="modern-slider" min="1" max="16" step="1" value="2">
+            </div>
+            <label class="field-label space-top-sm" for="terrain-layer1-select">Base texture</label>
+            <select id="terrain-layer1-select" class="animation-dropdown full-width"></select>
+            <label class="field-label space-top-sm" for="terrain-layer2-select">Overlay texture</label>
+            <select id="terrain-layer2-select" class="animation-dropdown full-width"></select>
+            <label class="field-label space-top-sm">Loaded textures</label>
+            <div id="terrain-texture-palette" class="terrain-texture-palette" aria-label="Loaded terrain textures"></div>
+            <label class="field-label space-top-sm" for="terrain-paint-layer">Paint layer</label>
+            <select id="terrain-paint-layer" class="animation-dropdown full-width">
+              <option value="both">Both layers</option>
+              <option value="1">Base only</option>
+              <option value="2">Overlay only</option>
+            </select>
+            <div class="brightness-control space-top-sm">
+              <label for="terrain-alpha-slider">Blend alpha</label>
+              <input id="terrain-alpha-slider" type="range" class="modern-slider" min="0" max="255" step="1" value="0">
+            </div>
+            <button id="terrain-apply-tile-btn" class="modern-btn btn-primary full-width space-top-sm">Apply Tile</button>
+            <div class="row-inline space-top-sm terrain-history-actions">
+              <button type="button" class="modern-btn terrain-history-undo">Undo</button>
+              <button type="button" class="modern-btn terrain-history-redo">Redo</button>
+            </div>
+            <button id="terrain-export-map-btn" class="modern-btn full-width space-top-sm">Export Edited MAP + OBJ</button>
+            <p id="terrain-tile-status" class="control-note"></p>
+          </div>
+
           <div class="control-section" id="terrain-navigation-section"
             data-menu-description="Minimap, jump fields and bookmarks stay together for fast navigation."
             data-menu-badge="Core">
             <h3>Navigation</h3>
-            <canvas id="terrain-minimap-canvas" class="terrain-minimap" width="220" height="220"></canvas>
+            <canvas id="terrain-minimap-sidebar-canvas" class="terrain-minimap" width="220" height="220"></canvas>
             <div class="row-inline space-top-sm">
               <input id="terrain-jump-x" type="number" class="frame-input input-w-lg" placeholder="X">
               <input id="terrain-jump-z" type="number" class="frame-input input-w-lg" placeholder="Z">
               <button id="terrain-jump-btn" class="modern-btn btn-primary">Jump</button>
             </div>
 
-            <div class="control-section" id="terrain-texture-editor-section"
-              data-menu-description="Select a terrain tile in the viewport or enter its coordinates, then change the texture layers and blend alpha."
-              data-menu-badge="Edit">
-              <h3>Terrain Textures</h3>
-              <p class="control-note">Click the ground to select a tile.</p>
-              <div class="row-inline">
-                <input id="terrain-tile-x" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="X">
-                <input id="terrain-tile-z" type="number" class="frame-input input-w-sm" min="0" max="255" value="0" placeholder="Z">
-              </div>
-              <label class="checkbox-control space-top-sm">
-                <span>Paint selected tile</span>
-                <input id="terrain-tile-brush-enabled" type="checkbox" class="modern-checkbox">
-              </label>
-              <div class="brightness-control space-top-sm">
-                <label for="terrain-tile-brush-size">Brush size <span id="terrain-tile-brush-size-value">2 tiles</span></label>
-                <input id="terrain-tile-brush-size" type="range" class="modern-slider" min="1" max="16" step="1" value="2">
-              </div>
-              <label class="field-label space-top-sm" for="terrain-layer1-select">Base texture</label>
-              <select id="terrain-layer1-select" class="animation-dropdown full-width"></select>
-              <label class="field-label space-top-sm" for="terrain-layer2-select">Overlay texture</label>
-              <select id="terrain-layer2-select" class="animation-dropdown full-width"></select>
-              <label class="field-label space-top-sm">Loaded textures</label>
-              <div id="terrain-texture-palette" class="terrain-texture-palette" aria-label="Loaded terrain textures"></div>
-              <label class="field-label space-top-sm" for="terrain-paint-layer">Paint layer</label>
-              <select id="terrain-paint-layer" class="animation-dropdown full-width">
-                <option value="both">Both layers</option>
-                <option value="1">Base only</option>
-                <option value="2">Overlay only</option>
-              </select>
-              <div class="brightness-control space-top-sm">
-                <label for="terrain-alpha-slider">Blend alpha</label>
-                <input id="terrain-alpha-slider" type="range" class="modern-slider" min="0" max="255" step="1" value="0">
-              </div>
-              <button id="terrain-apply-tile-btn" class="modern-btn btn-primary full-width space-top-sm">Apply Tile</button>
-              <button id="terrain-export-map-btn" class="modern-btn full-width space-top-sm">Export Edited MAP + OBJ</button>
-              <p id="terrain-tile-status" class="control-note"></p>
-            </div>
             <div class="row-inline space-top-sm">
               <input id="terrain-bookmark-name" type="text" class="animation-dropdown full-width"
                 placeholder="Bookmark name">
@@ -624,8 +644,8 @@
             data-menu-badge="Preview">
             <h3>Viewport</h3>
             <div class="row-inline space-bottom-sm">
-              <button id="terrain-undo-btn" class="modern-btn">Undo</button>
-              <button id="terrain-redo-btn" class="modern-btn">Redo</button>
+              <button id="terrain-undo-btn" class="modern-btn terrain-history-undo">Undo</button>
+              <button id="terrain-redo-btn" class="modern-btn terrain-history-redo">Redo</button>
             </div>
             <label class="checkbox-control">
               <span>Terrain grid</span>
@@ -690,6 +710,10 @@
             <input id="terrain-object-import-input" type="file" webkitdirectory directory multiple class="file-input-hidden" />
             <button id="terrain-object-import-btn" class="modern-btn full-width">Choose BMD folder</button>
             <button id="terrain-add-object-btn" class="modern-btn btn-primary full-width space-top-sm">Add selected object to map</button>
+            <div class="row-inline space-top-sm terrain-history-actions">
+              <button type="button" class="modern-btn terrain-history-undo">Undo</button>
+              <button type="button" class="modern-btn terrain-history-redo">Redo</button>
+            </div>
             <p id="terrain-object-import-status" class="control-note"></p>
             <div id="terrain-object-empty" class="control-note">No object selected.</div>
             <div id="terrain-object-details" class="hidden">
@@ -988,6 +1012,10 @@
 
     <main class="main-content view hidden" id="view-terrain">
       <div id="terrain-canvas-container"></div>
+      <div class="terrain-minimap-overlay" aria-label="Map overview">
+        <div class="terrain-minimap-overlay-title">MAP OVERVIEW</div>
+        <canvas id="terrain-minimap-canvas" class="terrain-minimap" width="220" height="220"></canvas>
+      </div>
 
       <aside id="terrain-object-editor-panel" class="terrain-object-editor-panel hidden">
         <div class="terrain-editor-header">

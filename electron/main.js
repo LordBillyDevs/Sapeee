@@ -1,5 +1,5 @@
 // Electron main process
-const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const { resolveDataFilePath, resolveDataRootFromPaths } = require('./data-root-resolver');
@@ -59,6 +59,7 @@ async function readDirectoryFilesRecursive(rootDir, keyPrefix) {
 }
 
 function createWindow() {
+  Menu.setApplicationMenu(null);
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
