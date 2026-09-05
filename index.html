@@ -709,18 +709,19 @@
             <label class="field-label space-top-sm" for="terrain-object-import-input">Import BMD + textures</label>
             <input id="terrain-object-import-input" type="file" webkitdirectory directory multiple class="file-input-hidden" />
             <button id="terrain-object-import-btn" class="modern-btn full-width">Choose BMD folder</button>
-            <button id="terrain-add-object-btn" class="modern-btn btn-primary full-width space-top-sm">Add selected object to map</button>
+            <select id="terrain-import-preview-select" class="animation-dropdown full-width space-top-sm hidden" aria-label="Imported object preview"></select>
+            <button id="terrain-add-object-btn" class="modern-btn btn-primary full-width space-top-sm">Add preview to map</button>
             <div class="row-inline space-top-sm terrain-history-actions">
               <button type="button" class="modern-btn terrain-history-undo">Undo</button>
               <button type="button" class="modern-btn terrain-history-redo">Redo</button>
             </div>
-            <p id="terrain-object-import-status" class="control-note"></p>
+            <p id="terrain-object-import-status" class="control-note">Import a folder to preview its BMD before placing it.</p>
             <div id="terrain-object-empty" class="control-note">No object selected.</div>
             <div id="terrain-object-details" class="hidden">
               <p>World: <span id="terrain-selected-world">-</span></p>
               <p>Type: <span id="terrain-selected-type">-</span></p>
               <p>Model: <span id="terrain-selected-model">-</span></p>
-              <p>Position: <span id="terrain-selected-position">-</span></p>
+              <p>Position (map tiles 0–255): <span id="terrain-selected-position">-</span></p>
               <p>Rotation: <span id="terrain-selected-rotation">-</span></p>
               <p>Scale: <span id="terrain-selected-scale">-</span></p>
               <div id="terrain-object-preview" class="terrain-object-preview">
@@ -742,7 +743,7 @@
               </div>
               <div class="section-divider space-top-sm">
                 <h4>Place a copy</h4>
-                <p class="control-note">Enter map coordinates for a new copy of the selected BMD.</p>
+                <p class="control-note">Enter map tile coordinates (0–255) for a new copy of the selected BMD.</p>
                 <div class="row-inline">
                   <input id="terrain-object-copy-x" type="number" class="frame-input input-w-md" step="1" placeholder="X">
                   <input id="terrain-object-copy-y" type="number" class="frame-input input-w-md" step="1" placeholder="Y">

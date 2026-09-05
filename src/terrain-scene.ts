@@ -10,6 +10,7 @@ import { Disposer } from './utils/Disposer';
 import { TerrainAttOverlay } from './terrain/TerrainAttOverlay';
 import {
     loadTerrainObjects,
+    loadTerrainObjectPreview,
     mapObjectAngleToVisualQuaternion,
     type TerrainAnimatedObjectInstance,
     type TerrainObjectLoadResult,
@@ -298,6 +299,7 @@ export class TerrainScene {
     private terrainTileStatusEl: HTMLElement | null = null;
     private terrainObjectSelectEl: HTMLSelectElement | null = null;
     private terrainObjectImportInputEl: HTMLInputElement | null = null;
+    private terrainImportPreviewSelectEl: HTMLSelectElement | null = null;
     private attTileXEl: HTMLInputElement | null = null;
     private attTileZEl: HTMLInputElement | null = null;
     private attFlagEls = new Map<TWFlags, HTMLInputElement>();
@@ -326,6 +328,10 @@ export class TerrainScene {
     private readonly redoHistory: TerrainEditSnapshot[] = [];
     private readonly objectUndoHistory: OBJData[] = [];
     private readonly objectRedoHistory: OBJData[] = [];
+    private pendingImportedFiles: Map<string, File> | null = null;
+    private pendingImportedData: OBJData | null = null;
+    private pendingImportedResult: TerrainObjectLoadResult | null = null;
+    private objectPreviewRequestId = 0;
 
     constructor() {
         this.initThree();
@@ -730,7 +736,7 @@ export class TerrainScene {
         if (this.loadedObjectsData) targetHistory.push(JSON.parse(JSON.stringify(this.loadedObjectsData)) as OBJData);
         const result = await loadTerrainObjects(snapshot, this.currentWorldFiles, this.loadedWorldNumber, undefined, {
             animatedInstancingMode: getTerrainAnimatedInstancingModeForBackend(this.rendererActiveBackend),
-            enableInstancing: false,
+            enableInstancing: true,
         });
         this.scene.remove(this.objectsGroup);
         this.disposeTerrainObject(this.objectsGroup);
@@ -1096,6 +1102,7 @@ export class TerrainScene {
         this.terrainTileStatusEl = document.getElementById('terrain-tile-status');
         this.terrainObjectSelectEl = document.getElementById('terrain-object-select') as HTMLSelectElement | null;
         this.terrainObjectImportInputEl = document.getElementById('terrain-object-import-input') as HTMLInputElement | null;
+        this.terrainImportPreviewSelectEl = document.getElementById('terrain-import-preview-select') as HTMLSelectElement | null;
         this.attTileXEl = document.getElementById('att-editor-x') as HTMLInputElement | null;
         this.attTileZEl = document.getElementById('att-editor-z') as HTMLInputElement | null;
         this.attEditorStatusEl = document.getElementById('att-editor-status');
@@ -1379,7 +1386,11 @@ export class TerrainScene {
             this.duplicateSelectedObjectAtEnteredCoordinates(action);
         }, true);
         document.getElementById('terrain-add-object-btn')?.addEventListener('click', () => {
-            this.addSelectedObjectAtCamera();
+            if (this.pendingImportedResult && this.pendingImportedData && this.pendingImportedFiles) {
+                this.commitPendingImportedObjects();
+            } else {
+                this.addSelectedObjectAtCamera();
+            }
         });
         document.getElementById('terrain-isolate-object-btn')?.addEventListener('click', () => {
             this.isolateSelectedObject();
@@ -1409,6 +1420,11 @@ export class TerrainScene {
             if (this.terrainObjectImportInputEl?.files) {
                 void this.importTerrainObjects(this.terrainObjectImportInputEl.files);
             }
+        });
+        this.terrainImportPreviewSelectEl?.addEventListener('change', () => {
+            const index = Number(this.terrainImportPreviewSelectEl?.value);
+            const record = this.pendingImportedResult?.records[index];
+            if (record) this.updateObjectPreview(record);
         });
         document.getElementById('att-editor-select-btn')?.addEventListener('click', () => this.selectAttTileFromInputs());
         document.getElementById('att-editor-apply-btn')?.addEventListener('click', () => this.applyAttTile());
@@ -1611,7 +1627,7 @@ export class TerrainScene {
                     },
                     {
                         animatedInstancingMode: getTerrainAnimatedInstancingModeForBackend(this.rendererActiveBackend),
-                        enableInstancing: false,
+                        enableInstancing: true,
                     },
                 );
                 pendingObjects = objectResult.group;
@@ -1803,24 +1819,63 @@ export class TerrainScene {
                     enableInstancing: false,
                 },
             );
-            for (const child of [...objectResult.group.children]) {
-                objectResult.group.remove(child);
-                this.objectsGroup.add(child);
+            if (this.pendingImportedResult) {
+                this.disposeTerrainObject(this.pendingImportedResult.group);
             }
-            this.objectRecords.push(...objectResult.records);
-            this.animatedObjectInstances.push(...objectResult.animatedInstances);
-            this.loadedObjectsData.objects.push(...importedObjects);
-            this.updateTerrainObjectSelect();
-            const lastImportedRecord = objectResult.records[objectResult.records.length - 1];
-            if (lastImportedRecord) {
-                this.selectObjectRecord(lastImportedRecord);
+            this.pendingImportedFiles = files;
+            this.pendingImportedData = importedData;
+            this.pendingImportedResult = objectResult;
+            if (this.terrainImportPreviewSelectEl) {
+                this.terrainImportPreviewSelectEl.innerHTML = '';
+                objectResult.records.forEach((record, index) => {
+                    const option = document.createElement('option');
+                    option.value = String(index);
+                    option.textContent = record.selection.displayName;
+                    this.terrainImportPreviewSelectEl?.appendChild(option);
+                });
+                this.terrainImportPreviewSelectEl.value = String(Math.max(0, objectResult.records.length - 1));
+                this.terrainImportPreviewSelectEl.classList.toggle('hidden', objectResult.records.length < 2);
             }
-            this.updateStats(this.getTerrainTileCount(this.terrainMesh!), this.objectRecords.length);
-            if (status) status.textContent = `Imported ${importedData.objects.length} object(s) with textures.`;
-            this.emitStateChanged();
+            const previewRecord = objectResult.records[objectResult.records.length - 1];
+            if (previewRecord) this.updateObjectPreview(previewRecord);
+            if (status) status.textContent = `Previewing ${importedData.objects.length} object(s). Rotate and zoom, then click Add preview to map.`;
         } catch (error) {
             if (status) status.textContent = `Object import failed: ${error instanceof Error ? error.message : String(error)}`;
         }
+    }
+
+    private commitPendingImportedObjects(): void {
+        if (!this.pendingImportedResult || !this.pendingImportedData || !this.pendingImportedFiles || !this.objectsGroup || !this.loadedObjectsData) {
+            return;
+        }
+        this.captureObjectEdit();
+        const selectedIndex = Math.max(0, Number(this.terrainImportPreviewSelectEl?.value || 0));
+        const selectedRecord = this.pendingImportedResult.records[selectedIndex];
+        const selectedObject = this.pendingImportedData.objects[selectedIndex];
+        if (!selectedRecord || !selectedObject) return;
+        if (selectedRecord.object3D) {
+            selectedRecord.object3D.parent?.remove(selectedRecord.object3D);
+            this.objectsGroup.add(selectedRecord.object3D);
+        }
+        this.objectRecords.push(selectedRecord);
+        this.loadedObjectsData.objects.push(selectedObject);
+        const lastImportedRecord = selectedRecord;
+        for (const record of this.pendingImportedResult.records) {
+            if (record !== selectedRecord && record.object3D) {
+                record.object3D.parent?.remove(record.object3D);
+            }
+        }
+        this.disposeTerrainObject(this.pendingImportedResult.group);
+        this.pendingImportedFiles = null;
+        this.pendingImportedData = null;
+        this.pendingImportedResult = null;
+        this.terrainImportPreviewSelectEl?.classList.add('hidden');
+        this.updateTerrainObjectSelect();
+        if (lastImportedRecord) this.selectObjectRecord(lastImportedRecord);
+        this.updateStats(this.getTerrainTileCount(this.terrainMesh!), this.objectRecords.length);
+        const status = document.getElementById('terrain-object-import-status');
+        if (status) status.textContent = 'Object added to the map.';
+        this.emitStateChanged();
     }
 
     private findCurrentWorldObjFileName(worldNumber: number): string {
@@ -2534,12 +2589,12 @@ export class TerrainScene {
         if (this.objectWorldEl) this.objectWorldEl.textContent = `${record.selection.worldNumber}`;
         if (this.objectTypeEl) this.objectTypeEl.textContent = `${record.selection.type}`;
         if (this.objectModelEl) this.objectModelEl.textContent = record.selection.modelName || 'Unresolved';
-        if (this.objectPositionEl) this.objectPositionEl.textContent = this.formatVector(record.selection.position);
+        if (this.objectPositionEl) this.objectPositionEl.textContent = this.formatMapPosition(record.selection.position);
         if (this.objectRotationEl) this.objectRotationEl.textContent = this.formatVector(record.selection.rotation);
         if (this.objectScaleEl) this.objectScaleEl.textContent = record.selection.scale.toFixed(2);
-        if (this.objectCopyXEl) this.objectCopyXEl.value = record.selection.position.x.toFixed(0);
-        if (this.objectCopyYEl) this.objectCopyYEl.value = record.selection.position.y.toFixed(0);
-        if (this.objectCopyZEl) this.objectCopyZEl.value = record.selection.position.z.toFixed(0);
+        if (this.objectCopyXEl) this.objectCopyXEl.value = (record.selection.position.x / TERRAIN_SCALE).toFixed(2);
+        if (this.objectCopyYEl) this.objectCopyYEl.value = (record.selection.position.y / TERRAIN_SCALE).toFixed(2);
+        if (this.objectCopyZEl) this.objectCopyZEl.value = (record.selection.position.z / TERRAIN_SCALE).toFixed(2);
         if (this.openModelBtn) this.openModelBtn.disabled = !record.modelFile;
         if (this.openModelHintEl) {
             this.openModelHintEl.textContent = record.modelFile
@@ -2626,6 +2681,8 @@ export class TerrainScene {
         if (!this.objectPreviewCanvas) return;
         this.objectPreviewScene = new THREE.Scene();
         this.objectPreviewScene.background = new THREE.Color(0x101923);
+        this.objectPreviewScene.add(new THREE.GridHelper(4, 8, 0x8b5cf6, 0x27364a));
+        this.objectPreviewScene.add(new THREE.AxesHelper(1.2));
         this.objectPreviewCamera = new THREE.PerspectiveCamera(35, 1, 0.01, 10000);
         this.objectPreviewCamera.position.set(2, 1.5, 3);
         this.objectPreviewRenderer = new THREE.WebGLRenderer({
@@ -2644,6 +2701,11 @@ export class TerrainScene {
         this.objectPreviewControls.enablePan = false;
         this.objectPreviewControls.enableDamping = true;
         this.objectPreviewControls.target.set(0, 0.5, 0);
+        this.objectPreviewControls.addEventListener('change', () => {
+            if (this.objectPreviewScene && this.objectPreviewCamera) {
+                this.objectPreviewRenderer?.render(this.objectPreviewScene, this.objectPreviewCamera);
+            }
+        });
         this.resizeObjectPreview();
         window.addEventListener('resize', () => this.resizeObjectPreview());
     }
@@ -2663,44 +2725,98 @@ export class TerrainScene {
             this.objectPreviewScene.remove(this.objectPreviewObject);
             this.objectPreviewObject = null;
         }
-        if (!record.object3D) return;
+        const requestId = ++this.objectPreviewRequestId;
+        const files = this.pendingImportedFiles ?? this.currentWorldFiles;
+        const previewData: OBJData = {
+            version: this.loadedObjectsData?.version ?? 0,
+            mapNumber: record.selection.worldNumber,
+            objects: [{
+                type: record.selection.type,
+                position: {
+                    x: record.selection.position.x,
+                    y: TERRAIN_WORLD_SIZE - record.selection.position.z,
+                    z: record.selection.position.y,
+                },
+                angle: {
+                    x: record.selection.rotation.x,
+                    y: record.selection.rotation.y,
+                    z: record.selection.rotation.z,
+                },
+                scale: record.selection.scale,
+            }],
+        };
+        void loadTerrainObjects(
+            previewData,
+            files,
+            record.selection.worldNumber,
+            undefined,
+            {
+                animatedInstancingMode: getTerrainAnimatedInstancingModeForBackend(this.rendererActiveBackend),
+                enableInstancing: false,
+            },
+        ).then(result => {
+            if (requestId !== this.objectPreviewRequestId) {
+                this.disposeTerrainObject(result.group);
+                return;
+            }
+            if (result.records.length === 0 || result.group.children.length === 0) {
+                this.setObjectEditorStatus('The selected object could not be resolved to a visible BMD.');
+                this.disposeTerrainObject(result.group);
+                return;
+            }
+            this.objectPreviewObject && this.objectPreviewScene?.remove(this.objectPreviewObject);
+            this.objectPreviewObject = result.group;
+            this.fitObjectPreview(result.group);
+        }).catch(error => {
+            if (requestId === this.objectPreviewRequestId) {
+                this.setObjectEditorStatus(`Preview failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        });
+    }
 
-        const metadata: Array<{ object: THREE.Object3D; record?: unknown; records?: unknown }> = [];
-        record.object3D.traverse(object => {
-            metadata.push({ object, record: object.userData.terrainObjectRecord, records: object.userData.terrainObjectRecords });
-            delete object.userData.terrainObjectRecord;
-            delete object.userData.terrainObjectRecords;
-        });
+    private async updateInstancedObjectPreview(record: TerrainObjectSelectionRecord): Promise<void> {
+        if (!record.modelFile || !this.objectPreviewScene) return;
         try {
-            this.objectPreviewObject = SkeletonUtils.clone(record.object3D);
-        } finally {
-            metadata.forEach(({ object, record: objectRecord, records }) => {
-                object.userData.terrainObjectRecord = objectRecord;
-                object.userData.terrainObjectRecords = records;
+            const group = await loadTerrainObjectPreview(record.modelFile, this.currentWorldFiles);
+            group.traverse(object => {
+                object.visible = true;
+                object.frustumCulled = false;
+                object.matrixAutoUpdate = true;
             });
+            this.objectPreviewObject && this.objectPreviewScene.remove(this.objectPreviewObject);
+            this.objectPreviewObject = group;
+            this.fitObjectPreview(group);
+        } catch (error) {
+            this.setObjectEditorStatus(`Preview failed: ${error instanceof Error ? error.message : String(error)}`);
         }
-        this.objectPreviewObject.traverse(object => {
-            object.visible = true;
-            object.frustumCulled = false;
-            object.matrixAutoUpdate = true;
-        });
-        this.objectPreviewObject.position.set(0, 0, 0);
-        this.objectPreviewObject.rotation.set(0, 0, 0);
-        this.objectPreviewObject.scale.setScalar(1);
-        this.objectPreviewObject.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(this.objectPreviewObject);
+    }
+
+    private fitObjectPreview(object: THREE.Object3D): void {
+        if (!this.objectPreviewScene || !this.objectPreviewCamera || !this.objectPreviewControls) return;
+        object.position.set(0, 0, 0);
+        object.rotation.set(0, 0, 0);
+        object.scale.setScalar(1);
+        object.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(object);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
         const maxSize = Math.max(size.x, size.y, size.z, 0.001);
-        this.objectPreviewObject.position.sub(center);
-        this.objectPreviewObject.scale.setScalar(2.2 / maxSize);
-        this.objectPreviewScene.add(this.objectPreviewObject);
+        object.position.sub(center);
+        object.scale.setScalar(2.2 / maxSize);
+        this.objectPreviewScene.add(object);
         this.objectPreviewControls.target.set(0, Math.max(0.1, size.y * 0.5 * 2.2 / maxSize), 0);
         this.objectPreviewCamera.position.set(2.2, 1.3, 2.8);
         this.objectPreviewCamera.lookAt(this.objectPreviewControls.target);
         this.objectPreviewControls.update();
         this.resizeObjectPreview();
         this.objectPreviewRenderer?.render(this.objectPreviewScene, this.objectPreviewCamera);
+    }
+
+    private formatMapPosition(position: ExplorerVector3): string {
+        const tileX = THREE.MathUtils.clamp(position.x / TERRAIN_SCALE, 0, TERRAIN_SIZE - 1);
+        const tileY = THREE.MathUtils.clamp(position.y / TERRAIN_SCALE, 0, TERRAIN_SIZE - 1);
+        const tileZ = THREE.MathUtils.clamp(position.z / TERRAIN_SCALE, 0, TERRAIN_SIZE - 1);
+        return `${tileX.toFixed(2)}, ${tileY.toFixed(2)}, ${tileZ.toFixed(2)} (tiles 0-${TERRAIN_SIZE - 1})`;
     }
 
     private renderObjectEditorMaterialRows(worldNumber: number, objectType: number) {
@@ -2949,8 +3065,11 @@ export class TerrainScene {
         }
 
         try {
-            this.duplicateSelectedObject({ x, y, z });
-            this.setObjectEditorStatus(`Object ${action} at (${Math.round(x)}, ${Math.round(y)}, ${Math.round(z)}).`);
+            const mapX = THREE.MathUtils.clamp(x, 0, TERRAIN_SIZE - 1) * TERRAIN_SCALE;
+            const mapY = THREE.MathUtils.clamp(y, 0, TERRAIN_SIZE - 1) * TERRAIN_SCALE;
+            const mapZ = THREE.MathUtils.clamp(z, 0, TERRAIN_SIZE - 1) * TERRAIN_SCALE;
+            this.duplicateSelectedObject({ x: mapX, y: mapY, z: mapZ });
+            this.setObjectEditorStatus(`Object ${action} at map tiles (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}).`);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setObjectEditorStatus(`Object copy failed: ${message}`);

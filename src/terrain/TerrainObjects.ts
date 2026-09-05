@@ -52,6 +52,21 @@ export interface TerrainObjectLoadResult {
     animatedInstances: TerrainAnimatedObjectInstance[];
 }
 
+export async function loadTerrainObjectPreview(
+    modelFile: File,
+    files: Map<string, File>,
+): Promise<THREE.Group> {
+    const loader = new BMDLoader();
+    const textureLoader = new THREE.TextureLoader();
+    const textureCache = new Map<string, THREE.Texture>();
+    const blendCache = new Map<string, BlendHeuristicResult>();
+    const { group, requiredTextures } = await loader.load(await modelFile.arrayBuffer());
+    for (const textureName of requiredTextures) {
+        await tryApplyTexture(group, textureName, files, textureLoader, textureCache, blendCache);
+    }
+    return group;
+}
+
 export interface TerrainObjectLoadOptions {
     animatedInstancingMode?: TerrainAnimatedInstancingMode;
     /**
