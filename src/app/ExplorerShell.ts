@@ -14,6 +14,7 @@ import { ItemBmdBrowser } from '../item-bmd-browser/ItemBmdBrowser';
 import { SkillBmdBrowser } from '../skill-bmd-browser/SkillBmdBrowser';
 import { GfxBrowser } from '../gfx-browser/GfxBrowser';
 import { SoundBrowser } from '../sound-browser/SoundBrowser';
+import { convertOzjToDataUrl } from '../ozj-loader';
 
 interface BmdViewerController {
     onStateChanged?: (state: BmdSessionState) => void;
@@ -50,6 +51,7 @@ export function initExplorerShell({
     explorerStore,
     initialState,
 }: ExplorerShellOptions): void {
+    void installGameCursor();
     const tabButtons = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
     const explorerSearchInput = document.getElementById('explorer-search') as HTMLInputElement | null;
     const explorerWorldsList = document.getElementById('explorer-worlds-list');
@@ -88,6 +90,20 @@ export function initExplorerShell({
         attInspector.setData(existingAtt, initialState.terrain.lastWorldNumber);
     }
 
+    async function installGameCursor(): Promise<void> {
+        const response = await fetch('/Cursor.ozt');
+        if (!response.ok) {
+            throw new Error(`Unable to load game cursor: ${response.status}`);
+        }
+        const cursorDataUrl = await convertOzjToDataUrl(await response.arrayBuffer(), 'ozt');
+        const cursor = `url("${cursorDataUrl}") 0 0, auto`;
+        document.documentElement.style.setProperty('--game-cursor', cursor);
+        document.body.style.cursor = cursor;
+        document.querySelectorAll<HTMLElement>('canvas').forEach(canvas => {
+            canvas.style.cursor = cursor;
+        });
+    }
+
     function formatRelativeTime(timestamp: number): string {
         const deltaMs = Math.max(0, Date.now() - timestamp);
         const deltaMinutes = Math.floor(deltaMs / 60000);
@@ -120,6 +136,14 @@ export function initExplorerShell({
         terrainScene.setActive(target === 'terrain');
         updatePresentationOverlay();
     }
+
+    document.getElementById('terrain-character-test-btn')?.addEventListener('click', () => {
+        void terrainScene.enterCharacterPlayMode();
+    });
+
+    document.getElementById('terrain-character-exit-btn')?.addEventListener('click', () => {
+        terrainScene.exitCharacterPlayMode();
+    });
 
     function syncPresentationMode(enabled: boolean): void {
         document.body.classList.toggle('presentation-mode', enabled);

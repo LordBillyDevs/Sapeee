@@ -603,7 +603,10 @@ private readStringFromDataView(view: DataView, offset: number, length: number): 
 
             if (tracks.length) {
                 const clip = new THREE.AnimationClip(`action_${a}`, duration, tracks);
-                clip.userData = { numAnimationKeys: action.numAnimationKeys }; // Store numAnimationKeys here
+                clip.userData = {
+                    actionIndex: a,
+                    numAnimationKeys: action.numAnimationKeys,
+                };
                 clips.push(clip);
             }
         }

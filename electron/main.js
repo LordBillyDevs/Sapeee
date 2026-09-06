@@ -309,6 +309,15 @@ ipcMain.handle('fs:readTerrainWorldFiles', async (event, dataRootPath, worldNumb
   }
 });
 
+ipcMain.handle('fs:readTerrainPlayerFiles', async (event, dataRootPath) => {
+  try {
+    return await readDirectoryFilesRecursive(path.join(dataRootPath, 'Player'), 'player');
+  } catch (error) {
+    console.error('[fs:readTerrainPlayerFiles] Failed to read Player files', error);
+    throw error;
+  }
+});
+
 // Search only for the texture names requested by the renderer. A best-effort
 // targeted scan avoids the all-or-nothing failure mode of the removed full
 // Data-tree cache.

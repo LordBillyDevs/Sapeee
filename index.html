@@ -29,8 +29,8 @@
 
     <div class="top-bar">
       <div class="top-bar-brand">
-        <span class="top-bar-eyebrow">For MuOnline Community</span>
-        <span class="top-bar-title">Mu World Editor V1.0</span>
+        <span class="top-bar-eyebrow">Map Editor - Season 21</span>
+        <span class="top-bar-title">Mu World Editor V1.0 - MuDevs</span>
       </div>
       <div class="top-bar-menu" aria-label="Application menu">
         <button id="about-btn" class="top-bar-menu-btn" type="button">About</button>
@@ -280,6 +280,7 @@
             data-menu-description="Load the game Data folder first so the rest of the character controls can stay simple."
             data-menu-badge="Start">
             <h3>Game Data</h3>
+            <button id="character-back-to-map-btn" class="modern-btn full-width space-bottom-sm">Back to Map Editor</button>
             <div class="drop-zone" id="data-drop-zone" title="Load Data folder">
               <p>Drop <strong>Data</strong> folder here</p>
               <input type="file" id="data-folder-input" webkitdirectory directory multiple class="file-input-hidden" />
@@ -499,6 +500,9 @@
         </div>
 
         <div id="sidebar-terrain" class="sidebar-view hidden">
+          <div class="world-data-brand terrain-sidebar-brand">
+            <img src="/mudevs-logo.png" alt="MUDevs logo">
+          </div>
           <div class="control-section" id="terrain-world-data-section"
             data-menu-description="Load Data and pick the current world in one place before moving around the map."
             data-menu-badge="Start">
@@ -518,6 +522,16 @@
                 <button id="terrain-load-world-btn" class="modern-btn btn-primary">Load</button>
               </div>
             </div>
+          </div>
+
+          <div class="control-section" id="terrain-character-test-section"
+            data-menu-description="Open the character test workspace without leaving the map editor."
+            data-menu-badge="Test">
+            <h3>Character Test Mode</h3>
+            <p class="control-note">Enter the loaded map with Player/player.bmd and move with map clicks.</p>
+            <button id="terrain-character-test-btn" class="modern-btn btn-primary full-width">Play Character in Map</button>
+            <button id="terrain-character-exit-btn" class="modern-btn full-width space-top-xs hidden">Exit Character Mode</button>
+            <p id="terrain-character-test-status" class="control-note"></p>
           </div>
 
           <div class="control-section" id="terrain-att-editor-section"
@@ -559,6 +573,17 @@
               <label for="terrain-brush-strength">Brush strength</label>
               <input id="terrain-brush-strength" type="range" class="modern-slider" min="1" max="100" step="1" value="100">
             </div>
+            <div class="section-divider space-top-sm terrain-height-editor">
+              <h4>Terrain Height</h4>
+              <p class="control-note">Enable height editing, then paint directly on the terrain.</p>
+              <label class="field-label" for="terrain-height-mode">Height tool</label>
+              <select id="terrain-height-mode" class="animation-dropdown full-width">
+                <option value="raise">Raise</option>
+                <option value="lower">Lower</option>
+                <option value="smooth">Smooth</option>
+                <option value="flatten">Flatten to center</option>
+              </select>
+            </div>
             <label class="checkbox-control space-top-sm">
               <span>Edit terrain height</span>
               <input id="terrain-height-enabled" type="checkbox" class="modern-checkbox">
@@ -576,6 +601,14 @@
             <button id="att-editor-export-btn" class="modern-btn full-width space-top-sm">Export Edited ATT</button>
             <button id="att-server-export-btn" class="modern-btn full-width space-top-sm">Export ATT for Server</button>
             <p id="att-editor-status" class="control-note"></p>
+          </div>
+
+          <div class="control-section" id="terrain-zone-section"
+            data-menu-description="Name and color ATT zones for a clearer map navigation and design workflow."
+            data-menu-badge="Zones">
+            <h3>Named ATT Zones</h3>
+            <p class="control-note">Customize the label and color used for each active area type.</p>
+            <div id="terrain-zone-editor" class="terrain-zone-editor"></div>
           </div>
 
           <div class="control-section" id="terrain-texture-editor-section"
@@ -617,6 +650,9 @@
               <button type="button" class="modern-btn terrain-history-redo">Redo</button>
             </div>
             <button id="terrain-export-map-btn" class="modern-btn full-width space-top-sm">Export Edited MAP + OBJ</button>
+            <button id="terrain-export-minimap-btn" class="modern-btn full-width space-top-sm">Export Minimap PNG</button>
+            <button id="terrain-export-navigation-btn" class="modern-btn full-width space-top-sm">Export Navigation Map PNG</button>
+            <button id="terrain-export-gltf-btn" class="modern-btn full-width space-top-sm">Export World for Blender (GLB)</button>
             <p id="terrain-tile-status" class="control-note"></p>
           </div>
 
@@ -712,6 +748,16 @@
             <button id="terrain-object-import-btn" class="modern-btn full-width">Choose BMD folder</button>
             <select id="terrain-import-preview-select" class="animation-dropdown full-width space-top-sm hidden" aria-label="Imported object preview"></select>
             <button id="terrain-add-object-btn" class="modern-btn btn-primary full-width space-top-sm">Add preview to map</button>
+            <label class="checkbox-control space-top-sm">
+              <span>Distribution brush</span>
+              <input id="terrain-object-scatter-enabled" type="checkbox" class="modern-checkbox">
+            </label>
+            <div class="row-inline space-top-sm">
+              <label class="field-label" for="terrain-object-scatter-count">Copies</label>
+              <input id="terrain-object-scatter-count" class="frame-input input-w-sm" type="number" min="1" max="32" value="5">
+              <label class="field-label" for="terrain-object-scatter-radius">Radius</label>
+              <input id="terrain-object-scatter-radius" class="frame-input input-w-sm" type="number" min="1" max="32" value="4">
+            </div>
             <div class="row-inline space-top-sm terrain-history-actions">
               <button type="button" class="modern-btn terrain-history-undo">Undo</button>
               <button type="button" class="modern-btn terrain-history-redo">Redo</button>

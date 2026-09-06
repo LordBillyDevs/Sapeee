@@ -10,6 +10,7 @@ export function createTerrainAttOverlayGeometry(
     sourceGeometry: THREE.BufferGeometry,
     heightOffset: number = ATT_OVERLAY_HEIGHT_OFFSET,
     includeNormalTiles: boolean = false,
+    customColors: ReadonlyMap<number, readonly [number, number, number]> | null = null,
 ): THREE.BufferGeometry {
     const sourcePositions = sourceGeometry.getAttribute('position');
     if (!sourcePositions) {
@@ -34,7 +35,7 @@ export function createTerrainAttOverlayGeometry(
             const tileIndex = ty * TERRAIN_SIZE + tx;
             const flag = attData.terrainWall[tileIndex] as TWFlags;
             if (!includeNormalTiles && flag === TWFlags.None) continue;
-            const color = getBlendedAttFlagColor(flag);
+            const color = getBlendedAttFlagColor(flag, customColors);
             const sourceVertexIndices = getTerrainTileSourceVertexIndices(tx, ty);
 
             for (let corner = 0; corner < 4; corner++) {
@@ -87,7 +88,10 @@ function createEmptyOverlayGeometry(): THREE.BufferGeometry {
     return geometry;
 }
 
-function getBlendedAttFlagColor(flag: TWFlags): readonly [number, number, number] {
+function getBlendedAttFlagColor(
+    flag: TWFlags,
+    customColors: ReadonlyMap<number, readonly [number, number, number]> | null = null,
+): readonly [number, number, number] {
     if (flag === TWFlags.None) {
         return [72, 108, 146];
     }
@@ -99,7 +103,7 @@ function getBlendedAttFlagColor(flag: TWFlags): readonly [number, number, number
 
     for (const definition of TERRAIN_ATTRIBUTE_FLAG_DEFINITIONS) {
         if ((flag & definition.flag) === 0) continue;
-        const color = getAttFlagColor(definition.flag);
+        const color = customColors?.get(definition.flag) || getAttFlagColor(definition.flag);
         r += color[0];
         g += color[1];
         b += color[2];
@@ -124,6 +128,7 @@ export class TerrainAttOverlay {
     private scene: THREE.Scene;
     private mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null = null;
     private visible: boolean = false;
+    private customColors = new Map<number, readonly [number, number, number]>();
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
@@ -166,9 +171,13 @@ export class TerrainAttOverlay {
             return;
         }
 
-        this.mesh.geometry = createTerrainAttOverlayGeometry(attData, terrainGeometry, ATT_OVERLAY_HEIGHT_OFFSET, true);
+        this.mesh.geometry = createTerrainAttOverlayGeometry(attData, terrainGeometry, ATT_OVERLAY_HEIGHT_OFFSET, true, this.customColors);
         this.mesh.visible = this.visible;
         previousGeometry.dispose();
+    }
+
+    public setCustomColors(colors: ReadonlyMap<number, readonly [number, number, number]>): void {
+        this.customColors = new Map(colors);
     }
 
     public setVisible(visible: boolean): void {

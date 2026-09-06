@@ -256,6 +256,49 @@ export class CharacterTestScene {
     this.statusEl.textContent = message;
   }
 
+  public async loadDataFiles(files: Map<string, File>): Promise<void> {
+    ++this.buildToken;
+    this.clearCharacter();
+    this.clearTextureCache();
+    this.dataFiles.clear();
+    this.textureIndex.clear();
+    this.dataRootPath = null;
+    this.electronTextureMap.clear();
+    this.missingDataPaths.clear();
+    this.playerAnimations = null;
+    this.hasFramed = false;
+    this.lastClassValue = null;
+    this.currentClassValue = null;
+    this.characterOffset.set(0, 0, 0);
+
+    for (const [path, file] of files) {
+      const normalized = normalizeDataPath(path);
+      this.dataFiles.set(normalized, file);
+      const ext = getExtension(normalized);
+      if (TEXTURE_EXTENSIONS.includes(ext)) {
+        const base = normalizeBaseName(normalized);
+        const list = this.textureIndex.get(base) || [];
+        list.push(normalized);
+        this.textureIndex.set(base, list);
+      }
+    }
+
+    const player = await this.readDataFile('Player/player.bmd');
+    if (!player) {
+      this.dataStatus.textContent = 'Player/player.bmd was not found in the loaded Data folder.';
+      this.statusEl.textContent = 'Character test mode requires Player/player.bmd.';
+      return;
+    }
+
+    const itemDatabaseLoaded = await this.loadItemDatabase();
+    this.dataStatus.textContent = itemDatabaseLoaded
+      ? 'Map Data connected. Player/player.bmd is ready.'
+      : 'Map Data connected. Player/player.bmd is ready; item.bmd was not found.';
+    this.statusEl.textContent = 'Building character from Player/player.bmd...';
+    this.applyPendingSessionState();
+    this.scheduleRebuild();
+  }
+
   public applyPresentationMode(enabled: boolean) {
     this.presentationMode = enabled;
     if (this.gridHelper) {

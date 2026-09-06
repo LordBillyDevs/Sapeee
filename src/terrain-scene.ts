@@ -46,13 +46,16 @@ import { readOZB } from './terrain/formats/OZBReader';
 import { writeOBJ } from './terrain/formats/OBJWriter';
 import { writeMAP, type TerrainMappingData } from './terrain/formats/MAPReader';
 import { readOBJ, type OBJData, type MapObject } from './terrain/formats/OBJReader';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { convertOzjToDataUrl } from './ozj-loader';
+import { BMDLoader } from './bmd-loader';
 import {
     createFileFromElectronData,
     isElectron,
     openDirectoryDialog,
     readTerrainObjectOverrides,
     readTerrainWorldFiles,
+    readTerrainPlayerFiles,
     scanWorldFolders,
     writeFileInDirectory,
     writeTerrainObjectOverrides,
@@ -94,6 +97,7 @@ const TERRAIN_OBJECT_CULL_INTERVAL_MS = 120;
 const TERRAIN_CAMERA_MOVE_SPEED = 7000;
 const TERRAIN_CAMERA_SPRINT_MULTIPLIER = 2.2;
 const TERRAIN_MAX_DELTA_SECONDS = 0.1;
+const CHARACTER_PLAY_ANIMATION_SPEED = 0.5;
 type TerrainRendererBackendPreference = TerrainSessionState['rendererBackend'];
 type TerrainRendererBackendActive = SharedRendererBackendActive;
 type TerrainMaterialBinding = {
@@ -309,6 +313,7 @@ export class TerrainScene {
     private attBrushSizeValueEl: HTMLElement | null = null;
     private terrainHeightEnabledEl: HTMLInputElement | null = null;
     private terrainHeightStrengthEl: HTMLInputElement | null = null;
+    private terrainHeightModeEl: HTMLSelectElement | null = null;
     private terrainLightPaintEnabledEl: HTMLInputElement | null = null;
     private terrainTileBrushEnabledEl: HTMLInputElement | null = null;
     private terrainTileBrushSizeEl: HTMLInputElement | null = null;
@@ -332,6 +337,34 @@ export class TerrainScene {
     private pendingImportedData: OBJData | null = null;
     private pendingImportedResult: TerrainObjectLoadResult | null = null;
     private objectPreviewRequestId = 0;
+    private objectLibrarySearch = '';
+    private objectScatterEnabled = false;
+    private objectScatterCount = 5;
+    private objectScatterRadius = 4;
+    private readonly zoneLabels = new Map<number, string>();
+    private readonly zoneColors = new Map<number, string>();
+    private characterPlayGroup: THREE.Group | null = null;
+    private characterPlayNameTag: THREE.Sprite | null = null;
+    private characterPlayMixer: THREE.AnimationMixer | null = null;
+    private characterPlayAction: THREE.AnimationAction | null = null;
+    private characterPlayIdleAction: THREE.AnimationAction | null = null;
+    private characterPlayMoveAction: THREE.AnimationAction | null = null;
+    private characterPlayClickAction: THREE.AnimationAction | null = null;
+    private characterPlayRunAction: THREE.AnimationAction | null = null;
+    private characterPlaySkeleton: THREE.Skeleton | null = null;
+    private characterPlayBmdBones: THREE.Bone[] | null = null;
+    private characterPlayBindMatrix: THREE.Matrix4 | null = null;
+    private characterPlayBaseQuaternion = new THREE.Quaternion();
+    private characterPlayFacingQuaternion = new THREE.Quaternion();
+    private characterPlayUpAxis = new THREE.Vector3(0, 1, 0);
+    private characterPlayPosition = new THREE.Vector3();
+    private characterPlayDestination: THREE.Vector3 | null = null;
+    private characterPlayMode = false;
+    private characterPlaySpeed = 420;
+    private characterPlayCameraOffset = new THREE.Vector3(0, 900, 900);
+    private characterPlayStatusEl: HTMLElement | null = null;
+    private characterPlayExitBtn: HTMLButtonElement | null = null;
+    private characterPlayAnimationSpeed = CHARACTER_PLAY_ANIMATION_SPEED;
 
     constructor() {
         this.initThree();
@@ -363,6 +396,328 @@ export class TerrainScene {
 
     public getLoadedAttData(): import('./terrain/formats/ATTReader').TerrainAttributeData | null {
         return this.loadedAttData;
+    }
+
+    public getCurrentDataFiles(): Map<string, File> {
+        return new Map(this.dataFiles);
+    }
+
+    public async enterCharacterPlayMode(): Promise<void> {
+        if (!this.terrainMesh || this.loadedWorldNumber === null) {
+            this.setCharacterPlayStatus('Load a World before entering Character Mode.');
+            return;
+        }
+
+        let playerEntry = [...this.dataFiles.entries()].find(([key]) =>
+            /(?:^|\/)player\/player\.bmd$/i.test(key),
+        );
+        if (!playerEntry && this.dataRootPath && isElectron()) {
+            const playerFiles = await readTerrainPlayerFiles(this.dataRootPath);
+            for (const entry of playerFiles) {
+                this.dataFiles.set(entry.key.toLowerCase(), createFileFromElectronData(entry.name, entry.data));
+            }
+            playerEntry = [...this.dataFiles.entries()].find(([key]) =>
+                /(?:^|\/)player\/player\.bmd$/i.test(key),
+            );
+        }
+        const baseEntry = [...this.dataFiles.entries()].find(([key]) =>
+            /(?:^|\/)player\/armorclass01\.bmd$/i.test(key),
+        ) ?? [...this.dataFiles.entries()].find(([key]) =>
+            /(?:^|\/)player\/armorclass\d+\.bmd$/i.test(key),
+        );
+        if (!baseEntry) {
+            this.setCharacterPlayStatus(
+                playerEntry
+                    ? 'Player/player.bmd was found, but Player/ArmorClass01.bmd was not found.'
+                    : 'Player/player.bmd and the Player/ArmorClass model were not found in the loaded Data folder.',
+            );
+            return;
+        }
+
+        this.disposeCharacterPlayGroup();
+        try {
+            const group = await loadTerrainObjectPreview(baseEntry[1], this.dataFiles);
+            group.name = 'map_player_character';
+            group.traverse(object => {
+                object.visible = true;
+                object.frustumCulled = false;
+                object.castShadow = true;
+                object.receiveShadow = true;
+            });
+            this.characterPlayGroup = group;
+            this.characterPlayBaseQuaternion.copy(group.quaternion);
+            this.characterPlaySkeleton = this.findCharacterSkeleton(group);
+            this.characterPlayBmdBones = group.userData.bmdBones as THREE.Bone[] | undefined ?? null;
+            this.characterPlayBindMatrix = this.findCharacterBindMatrix(group);
+            await this.loadCharacterParts(group);
+            const playerAnimationEntry = playerEntry;
+            if (this.characterPlaySkeleton && playerAnimationEntry) {
+                const animationLoader = new BMDLoader();
+                const loadedAnimations = animationLoader.loadAnimationsFrom(
+                    await playerAnimationEntry[1].arrayBuffer(),
+                    this.characterPlaySkeleton,
+                    this.characterPlayBmdBones ?? undefined,
+                );
+                group.animations = loadedAnimations.map(clip =>
+                    this.stabilizeCharacterMovementAnimation(clip, this.characterPlayBmdBones),
+                );
+            }
+            this.characterPlayMixer = group.animations.length > 0
+                ? new THREE.AnimationMixer(group)
+                : null;
+            const findCharacterAction = (actionId: number): THREE.AnimationAction | null => {
+                const clip = group.animations.find(candidate =>
+                    (candidate.userData as { actionIndex?: number } | undefined)?.actionIndex === actionId
+                    || candidate.name === `action_${actionId}`,
+                );
+                return this.characterPlayMixer && clip ? this.characterPlayMixer.clipAction(clip) : null;
+            };
+            this.characterPlayIdleAction = findCharacterAction(1);
+            this.characterPlayClickAction = findCharacterAction(82);
+            if (!this.characterPlayIdleAction || !this.characterPlayClickAction) {
+                console.warn(
+                    '[TerrainScene] Required map actions are missing. Expected action_1 and action_82.',
+                    group.animations.map(animation => animation.name),
+                );
+            }
+            /* Keep the base pose active until the first movement input. */
+            this.characterPlayAction = this.characterPlayIdleAction;
+            this.characterPlayAction
+                ?.setLoop(THREE.LoopRepeat, Infinity)
+                .setEffectiveTimeScale(this.characterPlayAnimationSpeed)
+                .play();
+
+            const start = this.controls.target.clone();
+            start.x = THREE.MathUtils.clamp(start.x, 0, TERRAIN_WORLD_SIZE);
+            start.z = THREE.MathUtils.clamp(start.z, 0, TERRAIN_WORLD_SIZE);
+            start.y = this.getTerrainWorldHeight(start.x, start.z);
+            this.characterPlayPosition.copy(start);
+                this.characterPlayDestination = null;
+            group.position.copy(start);
+            this.characterPlayNameTag = this.createCharacterPlayNameTag();
+            this.scene.add(group);
+            this.characterPlayNameTag.position.copy(group.position);
+            this.characterPlayNameTag.position.y += 260;
+            this.scene.add(this.characterPlayNameTag);
+            this.camera.position.copy(start).add(this.characterPlayCameraOffset);
+            this.controls.target.set(start.x, start.y + 100, start.z);
+            this.characterPlayMode = true;
+            this.controls.enabled = false;
+            this.characterPlayExitBtn?.classList.remove('hidden');
+            this.setCharacterPlayStatus(
+                `Character Mode active. Click to move (${group.animations.length} animations loaded).`,
+            );
+            this.setActive(true);
+        } catch (error) {
+            this.disposeCharacterPlayGroup();
+            this.setCharacterPlayStatus(`Player BMD failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    public exitCharacterPlayMode(): void {
+        this.characterPlayMode = false;
+        this.characterPlayDestination = null;
+        this.controls.enabled = true;
+        this.resetMovementKeys();
+        this.disposeCharacterPlayGroup();
+        this.characterPlayExitBtn?.classList.add('hidden');
+        this.setCharacterPlayStatus('Character Mode inactive.');
+    }
+
+    private setCharacterPlayStatus(message: string): void {
+        if (this.characterPlayStatusEl) this.characterPlayStatusEl.textContent = message;
+        if (this.statusEl && message.includes('failed')) this.statusEl.textContent = message;
+    }
+
+    private disposeCharacterPlayGroup(): void {
+        if (this.characterPlayGroup) {
+            if (this.characterPlayNameTag) {
+                const material = this.characterPlayNameTag.material as THREE.SpriteMaterial;
+                material.map?.dispose();
+                material.dispose();
+                this.scene.remove(this.characterPlayNameTag);
+            }
+            this.scene.remove(this.characterPlayGroup);
+            this.disposeTerrainObject(this.characterPlayGroup);
+        }
+        this.characterPlayGroup = null;
+        this.characterPlayNameTag = null;
+        this.characterPlayMixer = null;
+        this.characterPlayAction = null;
+        this.characterPlayIdleAction = null;
+        this.characterPlayMoveAction = null;
+        this.characterPlayClickAction = null;
+        this.characterPlayRunAction = null;
+        this.characterPlaySkeleton = null;
+        this.characterPlayBmdBones = null;
+        this.characterPlayBindMatrix = null;
+        this.characterPlayBaseQuaternion.identity();
+        this.characterPlayFacingQuaternion.identity();
+    }
+
+    private createCharacterPlayNameTag(): THREE.Sprite {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 128;
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Unable to create the character name tag.');
+        }
+
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#ffffff';
+        context.font = 'bold 56px Arial';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.shadowColor = 'rgba(0, 0, 0, 0.9)';
+        context.shadowBlur = 8;
+        context.shadowOffsetX = 2;
+        context.shadowOffsetY = 2;
+        context.fillText('LordBilly', canvas.width / 2, canvas.height / 2 + 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.name = 'character_name_tag';
+        sprite.scale.set(190, 48, 1);
+        sprite.renderOrder = 20;
+        return sprite;
+    }
+
+    private updateCharacterPlayNameTag(): void {
+        if (!this.characterPlayGroup || !this.characterPlayNameTag) return;
+        this.characterPlayNameTag.position.copy(this.characterPlayGroup.position);
+        this.characterPlayNameTag.position.y += 260;
+    }
+
+    private setCharacterPlayDestination(clientX: number, clientY: number): void {
+        if (!this.characterPlayMode || !this.terrainMesh) return;
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.pointer.set(
+            ((clientX - rect.left) / rect.width) * 2 - 1,
+            -((clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        this.raycaster.setFromCamera(this.pointer, this.camera);
+        const hit = this.raycaster.intersectObject(this.terrainMesh, true)[0];
+        if (!hit) {
+            this.setCharacterPlayStatus('Click on the terrain to set a destination.');
+            return;
+        }
+
+        const destination = new THREE.Vector3(
+            THREE.MathUtils.clamp(hit.point.x, 0, TERRAIN_WORLD_SIZE),
+            hit.point.y,
+            THREE.MathUtils.clamp(hit.point.z, 0, TERRAIN_WORLD_SIZE),
+        );
+        if (this.isCharacterTileBlocked(destination.x, destination.z)) {
+            this.setCharacterPlayStatus('The selected ATT area is not walkable.');
+            return;
+        }
+        this.characterPlayDestination = destination;
+        this.setCharacterPlayAnimation(true, false);
+        if (!this.characterPlayClickAction) {
+            this.setCharacterPlayStatus('Click animation action_82 was not found in Player/player.bmd.');
+            return;
+        }
+        this.setCharacterPlayStatus('Moving to selected location...');
+    }
+
+    private findCharacterSkeleton(group: THREE.Group): THREE.Skeleton | null {
+        let skeleton: THREE.Skeleton | null = null;
+        group.traverse(object => {
+            if (!skeleton && (object as THREE.SkinnedMesh).isSkinnedMesh) {
+                skeleton = (object as THREE.SkinnedMesh).skeleton;
+            }
+        });
+        return skeleton;
+    }
+
+    private findCharacterBindMatrix(group: THREE.Group): THREE.Matrix4 | null {
+        let bindMatrix: THREE.Matrix4 | null = null;
+        group.traverse(object => {
+            if (!bindMatrix && (object as THREE.SkinnedMesh).isSkinnedMesh) {
+                bindMatrix = (object as THREE.SkinnedMesh).bindMatrix.clone();
+            }
+        });
+        return bindMatrix;
+    }
+
+    private setCharacterPlayFacing(direction: THREE.Vector3): void {
+        const angle = Math.atan2(direction.x, direction.z);
+        this.characterPlayFacingQuaternion.setFromAxisAngle(this.characterPlayUpAxis, angle);
+        this.characterPlayGroup?.quaternion
+            .copy(this.characterPlayFacingQuaternion)
+            .multiply(this.characterPlayBaseQuaternion);
+    }
+
+    private async loadCharacterParts(root: THREE.Group): Promise<void> {
+        const basePath = [...this.dataFiles.keys()].find(key => /player\/armorclass\d+\.bmd$/i.test(key));
+        if (!basePath || !this.characterPlaySkeleton) return;
+        const classToken = basePath.match(/armorclass(\d+)\.bmd$/i)?.[1] ?? '01';
+        const partNames = ['Helm', 'Pant', 'Glove', 'Boot'];
+        for (const partName of partNames) {
+            const entry = [...this.dataFiles.entries()].find(([key]) =>
+                key === `player/${partName.toLowerCase()}class${classToken}.bmd`
+                || key.endsWith(`/player/${partName.toLowerCase()}class${classToken}.bmd`),
+            );
+            if (!entry) continue;
+            const part = await loadTerrainObjectPreview(entry[1], this.dataFiles);
+            const meshes: THREE.SkinnedMesh[] = [];
+            part.traverse(object => {
+                if ((object as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(object as THREE.SkinnedMesh);
+            });
+            for (const mesh of meshes) {
+                mesh.position.set(0, 0, 0);
+                mesh.rotation.set(0, 0, 0);
+                mesh.scale.set(1, 1, 1);
+                root.add(mesh);
+                mesh.bind(this.characterPlaySkeleton!, this.characterPlayBindMatrix ?? mesh.bindMatrix);
+            }
+        }
+    }
+
+    private setCharacterPlayAnimation(moving: boolean, sprinting: boolean): void {
+        const nextAction = moving ? this.characterPlayClickAction : this.characterPlayIdleAction;
+        if (!nextAction || nextAction === this.characterPlayAction) return;
+        this.characterPlayMixer?.stopAllAction();
+        nextAction
+            .reset()
+            .setEffectiveWeight(1)
+            .setLoop(THREE.LoopRepeat, Infinity)
+            .setEffectiveTimeScale(this.characterPlayAnimationSpeed)
+            .fadeIn(0.15)
+            .play();
+        this.characterPlayAction = nextAction;
+    }
+
+    private stabilizeCharacterMovementAnimation(
+        clip: THREE.AnimationClip,
+        bmdBones: THREE.Bone[] | null,
+    ): THREE.AnimationClip {
+        const actionIndex = (clip.userData as { actionIndex?: number } | undefined)?.actionIndex;
+        if (actionIndex !== 13 && actionIndex !== 22 && actionIndex !== 82) return clip;
+
+        if (!bmdBones?.length) return clip;
+        const bmdBoneSet = new Set(bmdBones);
+        const rootPrefixes = bmdBones
+            .filter(bone => !bone.parent || !bmdBoneSet.has(bone.parent as THREE.Bone))
+            .map(bone => `${bone.name}.`);
+        const tracks = clip.tracks.filter(track =>
+            !rootPrefixes.some(prefix =>
+                track.name.startsWith(`${prefix}quaternion`)
+                || track.name.startsWith(`${prefix}position`),
+            ),
+        );
+        const stabilized = new THREE.AnimationClip(clip.name, clip.duration, tracks);
+        stabilized.userData = { ...clip.userData };
+        return stabilized;
     }
 
     public setStatusMessage(message: string) {
@@ -602,6 +957,14 @@ export class TerrainScene {
 
     private attachCanvasPointerEvents(domElement: HTMLCanvasElement) {
         domElement.addEventListener('pointerdown', event => {
+            if (this.characterPlayMode && event.button === 0) {
+                this.setCharacterPlayDestination(event.clientX, event.clientY);
+                this.pointerDown = null;
+                this.paintingStrokeActive = false;
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             this.pointerDown = { x: event.clientX, y: event.clientY };
             this.brushErase = event.button === 2;
             if (event.button === 0 && event.ctrlKey && this.selectedObjectRecord && this.transformControlMode === 'translate' && this.transformControlsHelper?.visible && this.isTransformGizmoHitAtClientPoint(event.clientX, event.clientY)) {
@@ -651,6 +1014,10 @@ export class TerrainScene {
                 }
                 return;
             }
+            if (this.characterPlayMode && event.button === 0) {
+                this.setCharacterPlayDestination(event.clientX, event.clientY);
+                return;
+            }
             if (this.terrainTileBrushEnabledEl?.checked) {
                 this.paintTerrainTileAtClientPoint(event.clientX, event.clientY);
             } else if (this.attBrushEnabledEl?.checked || this.isAttFlagPaintConfigured()) {
@@ -659,6 +1026,8 @@ export class TerrainScene {
                 this.paintHeightAtClientPoint(event.clientX, event.clientY, this.brushErase ? -1 : 1);
             } else if (this.terrainLightPaintEnabledEl?.checked) {
                 this.paintLightAtClientPoint(event.clientX, event.clientY);
+            } else if (this.objectScatterEnabled) {
+                this.scatterSelectedObjectAtClientPoint(event.clientX, event.clientY);
             } else {
                 this.handleCanvasSelection(event);
             }
@@ -1111,6 +1480,7 @@ export class TerrainScene {
         this.attBrushSizeValueEl = document.getElementById('att-brush-size-value');
         this.terrainHeightEnabledEl = document.getElementById('terrain-height-enabled') as HTMLInputElement | null;
         this.terrainHeightStrengthEl = document.getElementById('terrain-height-strength') as HTMLInputElement | null;
+        this.terrainHeightModeEl = document.getElementById('terrain-height-mode') as HTMLSelectElement | null;
         this.terrainLightPaintEnabledEl = document.getElementById('terrain-light-paint-enabled') as HTMLInputElement | null;
         this.terrainTileBrushEnabledEl = document.getElementById('terrain-tile-brush-enabled') as HTMLInputElement | null;
         this.terrainTileBrushSizeEl = document.getElementById('terrain-tile-brush-size') as HTMLInputElement | null;
@@ -1120,11 +1490,10 @@ export class TerrainScene {
         this.terrainHeightSmoothEl = document.getElementById('terrain-height-smooth') as HTMLInputElement | null;
         this.terrainPaintLayerEl = document.getElementById('terrain-paint-layer') as HTMLSelectElement | null;
         this.terrainGridEl = document.getElementById('terrain-grid-enabled') as HTMLInputElement | null;
-        this.terrainBrushHardnessEl = document.getElementById('terrain-brush-hardness') as HTMLInputElement | null;
-        this.terrainBrushStrengthEl = document.getElementById('terrain-brush-strength') as HTMLInputElement | null;
-        this.terrainHeightSmoothEl = document.getElementById('terrain-height-smooth') as HTMLInputElement | null;
-        this.terrainPaintLayerEl = document.getElementById('terrain-paint-layer') as HTMLSelectElement | null;
-        this.terrainGridEl = document.getElementById('terrain-grid-enabled') as HTMLInputElement | null;
+        this.characterPlayStatusEl = document.getElementById('terrain-character-test-status');
+        this.characterPlayExitBtn = document.getElementById('terrain-character-exit-btn') as HTMLButtonElement | null;
+        this.initializeZoneEditor();
+        this.bindAdvancedMapTools();
         this.attFlagEls.clear();
         document.querySelectorAll<HTMLInputElement>('[data-att-editor-flag]').forEach(input => {
             const flag = Number(input.dataset.attEditorFlag);
@@ -2038,9 +2407,14 @@ export class TerrainScene {
         const centerX = Math.floor(hit.point.x / TERRAIN_SCALE);
         const centerZ = Math.floor((TERRAIN_WORLD_SIZE - hit.point.z) / TERRAIN_SCALE);
         this.updateTerrainTileCoordinates(centerX, centerZ);
-        const delta = Number(this.terrainHeightStrengthEl?.value || 0);
+        const mode = this.terrainHeightModeEl?.value || 'raise';
+        const delta = Math.abs(Number(this.terrainHeightStrengthEl?.value || 0));
         const hardness = Number(this.terrainBrushHardnessEl?.value || 100) / 100;
-        const smooth = this.terrainHeightSmoothEl?.checked === true;
+        const smooth = mode === 'smooth' || this.terrainHeightSmoothEl?.checked === true;
+        const flattenTarget = this.getTerrainHeightSample(
+            Math.floor(hit.point.x / TERRAIN_SCALE),
+            Math.floor((TERRAIN_WORLD_SIZE - hit.point.z) / TERRAIN_SCALE),
+        );
         const bounds = this.getTerrainBrushBounds(centerX, centerZ);
         for (let z = bounds.startZ; z <= bounds.endZ; z++) {
             for (let x = bounds.startX; x <= bounds.endX; x++) {
@@ -2052,9 +2426,11 @@ export class TerrainScene {
                         z > 0 ? this.loadedHeightData.data[offset - TERRAIN_SIZE * 4] : current,
                         z < TERRAIN_SIZE - 1 ? this.loadedHeightData.data[offset + TERRAIN_SIZE * 4] : current,
                     ];
-                    const target = smooth
+                    const target = mode === 'flatten'
+                        ? flattenTarget
+                        : smooth
                         ? neighbors.reduce((sum, value) => sum + value, 0) / neighbors.length
-                        : current + delta * direction;
+                        : current + delta * (mode === 'lower' ? -1 : direction);
                     this.loadedHeightData.data[offset] = THREE.MathUtils.clamp(
                         current + (target - current) * (smooth ? hardness : Number(this.terrainBrushStrengthEl?.value || 100) / 100),
                         0,
@@ -2066,7 +2442,14 @@ export class TerrainScene {
         this.terrainMesh.geometry.dispose();
         this.terrainMesh.geometry = geometry;
         this.refreshTerrainAttOverlay();
-        if (this.attEditorStatusEl) this.attEditorStatusEl.textContent = `Height painted at ${centerX}, ${centerZ}. Export height data with the world files.`;
+        if (this.attEditorStatusEl) this.attEditorStatusEl.textContent = `Height ${mode} applied at ${centerX}, ${centerZ}. Export the world files to save it.`;
+    }
+
+    private getTerrainHeightSample(x: number, z: number): number {
+        if (!this.loadedHeightData) return 0;
+        const sampleX = THREE.MathUtils.clamp(x, 0, TERRAIN_SIZE - 1);
+        const sampleZ = THREE.MathUtils.clamp(z, 0, TERRAIN_SIZE - 1);
+        return this.loadedHeightData.data[(sampleZ * TERRAIN_SIZE + sampleX) * 4];
     }
 
     private paintLightAtClientPoint(clientX: number, clientY: number) {
@@ -2174,6 +2557,83 @@ export class TerrainScene {
             }
         }
     }
+
+    private async exportMinimapPng() {
+            if (!this.minimapCanvas) {
+                this.setObjectEditorStatus('Load a world before exporting the minimap.');
+                return;
+            }
+            this.drawMinimap();
+            const blob = await new Promise<Blob | null>(resolve => this.minimapCanvas?.toBlob(resolve, 'image/png'));
+            if (!blob) return;
+            const root = await openDirectoryDialog();
+            if (!root) return;
+            const result = await writeFileInDirectory(root, `World${this.loadedWorldNumber ?? 0}_minimap.png`, new Uint8Array(await blob.arrayBuffer()));
+            this.setObjectEditorStatus(result.error ? `Minimap export failed: ${result.error}` : `Exported minimap: ${result.path}`);
+        }
+
+        private async exportNavigationPng() {
+            if (!this.loadedAttData) {
+                this.setObjectEditorStatus('Load a world with ATT data before exporting navigation.');
+                return;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = TERRAIN_SIZE;
+            canvas.height = TERRAIN_SIZE;
+            const context = canvas.getContext('2d');
+            if (!context) return;
+            const image = context.createImageData(TERRAIN_SIZE, TERRAIN_SIZE);
+            const pixels = image.data;
+            for (let index = 0; index < TERRAIN_SIZE * TERRAIN_SIZE; index++) {
+                const flags = this.loadedAttData.terrainWall[index] || 0;
+                const walkable = (flags & (TWFlags.NoMove | TWFlags.NoGround)) === 0;
+                const safe = (flags & TWFlags.SafeZone) !== 0;
+                const water = (flags & TWFlags.Water) !== 0;
+                const offset = index * 4;
+                pixels[offset] = safe ? 70 : water ? 40 : walkable ? 70 : 210;
+                pixels[offset + 1] = safe ? 190 : water ? 110 : walkable ? 150 : 50;
+                pixels[offset + 2] = safe ? 120 : water ? 220 : walkable ? 70 : 50;
+                pixels[offset + 3] = 255;
+            }
+            context.putImageData(image, 0, 0);
+            const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+            if (!blob) return;
+            const root = await openDirectoryDialog();
+            if (!root) return;
+            const result = await writeFileInDirectory(root, `World${this.loadedWorldNumber ?? 0}_navigation.png`, new Uint8Array(await blob.arrayBuffer()));
+            this.setObjectEditorStatus(result.error ? `Navigation export failed: ${result.error}` : `Exported navigation: ${result.path}`);
+        }
+
+        private async exportWorldGltf() {
+            if (!this.terrainMesh) {
+                this.setObjectEditorStatus('Load a world before exporting GLB.');
+                return;
+            }
+            const root = await openDirectoryDialog();
+            if (!root) return;
+            const exportScene = new THREE.Scene();
+            const terrain = this.terrainMesh.clone(true);
+            terrain.traverse(object => {
+                const mesh = object as THREE.Mesh;
+                if (!mesh.isMesh) return;
+                const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+                if (material instanceof THREE.ShaderMaterial) {
+                    mesh.material = new THREE.MeshStandardMaterial({ color: 0x78866b, roughness: 1 });
+                }
+            });
+            exportScene.add(terrain);
+            if (this.objectsGroup) exportScene.add(this.objectsGroup.clone(true));
+            exportScene.add(this.objectsGroup.clone(true));
+            const exporter = new GLTFExporter();
+            const result = await new Promise<ArrayBuffer>((resolve, reject) => {
+                exporter.parse(exportScene, value => {
+                    if (value instanceof ArrayBuffer) resolve(value);
+                    else reject(new Error('GLTF exporter returned JSON instead of binary GLB.'));
+                }, reject, { binary: true });
+            });
+            const writeResult = await writeFileInDirectory(root, `World${this.loadedWorldNumber ?? 0}.glb`, new Uint8Array(result));
+            this.setObjectEditorStatus(writeResult.error ? `GLB export failed: ${writeResult.error}` : `Exported GLB: ${writeResult.path}`);
+        }
 
     private buildMinimapSource() {
         if (!this.terrainMesh) {
@@ -2330,6 +2790,137 @@ export class TerrainScene {
             option.textContent = `${record.selection.displayName} [${record.selection.type}]`;
             this.terrainObjectSelectEl!.appendChild(option);
         });
+        this.renderObjectLibrary();
+    }
+
+    private renderObjectLibrary() {
+        const container = document.getElementById('terrain-object-library');
+        if (!container) return;
+        container.replaceChildren();
+        const query = this.objectLibrarySearch.trim().toLowerCase();
+        const records = this.objectRecords
+            .filter(record => !query || `${record.selection.displayName} ${record.selection.type}`.toLowerCase().includes(query))
+            .slice(0, 200);
+        if (records.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'control-note';
+            empty.textContent = 'No objects match the search.';
+            container.appendChild(empty);
+            return;
+        }
+        for (const record of records) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'terrain-library-item';
+            button.textContent = `${record.selection.displayName} · ${record.selection.type}`;
+            button.addEventListener('click', () => this.selectObjectRecord(record));
+            container.appendChild(button);
+        }
+    }
+
+    private scatterSelectedObjectAtClientPoint(clientX: number, clientY: number) {
+        if (!this.selectedObjectRecord) {
+            this.setObjectEditorStatus('Select an object before using the distribution brush.');
+            return;
+        }
+        const hit = this.getTerrainHitAtClientPoint(clientX, clientY);
+        if (!hit) return;
+        const count = THREE.MathUtils.clamp(Math.trunc(this.objectScatterCount), 1, 32);
+        const radius = THREE.MathUtils.clamp(this.objectScatterRadius, 1, 32) * TERRAIN_SCALE;
+        for (let index = 0; index < count; index++) {
+            const angle = Math.random() * Math.PI * 2;
+            const distance = Math.sqrt(Math.random()) * radius;
+            this.duplicateSelectedObject({
+                x: THREE.MathUtils.clamp(hit.point.x + Math.cos(angle) * distance, 0, TERRAIN_WORLD_SIZE),
+                y: hit.point.y,
+                z: THREE.MathUtils.clamp(hit.point.z + Math.sin(angle) * distance, 0, TERRAIN_WORLD_SIZE),
+            });
+        }
+        this.setObjectEditorStatus(`Distributed ${count} object copies.`);
+    }
+
+    private initializeZoneEditor() {
+        const container = document.getElementById('terrain-zone-editor');
+        if (!container) return;
+        const stored = localStorage.getItem('mudevs-zone-definitions');
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored) as Record<string, { name?: string; color?: string }>;
+                Object.entries(parsed).forEach(([key, value]) => {
+                    const flag = Number(key);
+                    if (value.name) this.zoneLabels.set(flag, value.name);
+                    if (value.color) this.zoneColors.set(flag, value.color);
+                });
+            } catch {
+                localStorage.removeItem('mudevs-zone-definitions');
+            }
+        }
+        this.applyZoneColorsToOverlay();
+        for (const definition of TERRAIN_ATTRIBUTE_FLAG_DEFINITIONS) {
+            const row = document.createElement('div');
+            row.className = 'terrain-zone-row';
+            const name = document.createElement('input');
+            name.className = 'frame-input';
+            name.value = this.zoneLabels.get(definition.flag) || definition.name;
+            name.title = `Name for ${definition.name}`;
+            const color = document.createElement('input');
+            color.type = 'color';
+            color.value = this.zoneColors.get(definition.flag) || '#7c3aed';
+            color.title = `Color for ${definition.name}`;
+            name.addEventListener('change', () => {
+                this.zoneLabels.set(definition.flag, name.value.trim() || definition.name);
+                this.saveZoneDefinitions();
+            });
+            color.addEventListener('input', () => {
+                this.zoneColors.set(definition.flag, color.value);
+                this.applyZoneColorsToOverlay();
+                this.saveZoneDefinitions();
+            });
+            row.append(name, color);
+            container.appendChild(row);
+        }
+    }
+
+    private saveZoneDefinitions() {
+        const value: Record<string, { name: string; color: string }> = {};
+        TERRAIN_ATTRIBUTE_FLAG_DEFINITIONS.forEach(definition => {
+            value[String(definition.flag)] = {
+                name: this.zoneLabels.get(definition.flag) || definition.name,
+                color: this.zoneColors.get(definition.flag) || '#7c3aed',
+            };
+        });
+        localStorage.setItem('mudevs-zone-definitions', JSON.stringify(value));
+    }
+
+    private applyZoneColorsToOverlay() {
+        const colors = new Map<number, readonly [number, number, number]>();
+        this.zoneColors.forEach((hex, flag) => {
+            const value = Number.parseInt(hex.replace('#', ''), 16);
+            if (Number.isFinite(value)) {
+                colors.set(flag, [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff]);
+            }
+        });
+        this.terrainAttOverlay?.setCustomColors(colors);
+        if (this.loadedAttData && this.terrainMesh) this.terrainAttOverlay?.setData(this.loadedAttData, this.terrainMesh.geometry);
+    }
+
+    private bindAdvancedMapTools() {
+        document.getElementById('terrain-object-library-search')?.addEventListener('input', event => {
+            this.objectLibrarySearch = (event.target as HTMLInputElement).value;
+            this.renderObjectLibrary();
+        });
+        document.getElementById('terrain-object-scatter-enabled')?.addEventListener('change', event => {
+            this.objectScatterEnabled = (event.target as HTMLInputElement).checked;
+        });
+        document.getElementById('terrain-object-scatter-count')?.addEventListener('input', event => {
+            this.objectScatterCount = Number((event.target as HTMLInputElement).value) || 5;
+        });
+        document.getElementById('terrain-object-scatter-radius')?.addEventListener('input', event => {
+            this.objectScatterRadius = Number((event.target as HTMLInputElement).value) || 4;
+        });
+        document.getElementById('terrain-export-minimap-btn')?.addEventListener('click', () => this.exportMinimapPng());
+        document.getElementById('terrain-export-navigation-btn')?.addEventListener('click', () => this.exportNavigationPng());
+        document.getElementById('terrain-export-gltf-btn')?.addEventListener('click', () => { void this.exportWorldGltf(); });
     }
 
     private selectTerrainTileAtClientPoint(clientX: number, clientY: number) {
@@ -2756,6 +3347,27 @@ export class TerrainScene {
         }
         const requestId = ++this.objectPreviewRequestId;
         const files = this.pendingImportedFiles ?? this.currentWorldFiles;
+        if (record.modelFile) {
+            void loadTerrainObjectPreview(record.modelFile, files).then(group => {
+                if (requestId !== this.objectPreviewRequestId) {
+                    this.disposeTerrainObject(group);
+                    return;
+                }
+                group.traverse(object => {
+                    object.visible = true;
+                    object.frustumCulled = false;
+                    object.matrixAutoUpdate = true;
+                });
+                this.objectPreviewObject && this.objectPreviewScene?.remove(this.objectPreviewObject);
+                this.objectPreviewObject = group;
+                this.fitObjectPreview(group);
+            }).catch(error => {
+                if (requestId === this.objectPreviewRequestId) {
+                    this.setObjectEditorStatus(`Preview failed: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            });
+            return;
+        }
         const previewData: OBJData = {
             version: this.loadedObjectsData?.version ?? 0,
             mapNumber: record.selection.worldNumber,
@@ -4238,6 +4850,9 @@ export class TerrainScene {
 
     private handleMovementKey(event: KeyboardEvent, isDown: boolean) {
         if (!this.isActive) return;
+        if (this.characterPlayMode) {
+            return;
+        }
         if (isDown && event.code === 'Escape') {
             this.clearSelection();
             event.preventDefault();
@@ -4276,9 +4891,16 @@ export class TerrainScene {
     }
 
     private updateKeyboardMovement(deltaSeconds: number) {
+        if (this.characterPlayMode) {
+            this.updateCharacterClickMovement(deltaSeconds);
+            return;
+        }
         const forwardInput = (this.movementKeys.KeyW ? 1 : 0) + (this.movementKeys.KeyS ? -1 : 0);
         const rightInput = (this.movementKeys.KeyA ? 1 : 0) + (this.movementKeys.KeyD ? -1 : 0);
-        if (forwardInput === 0 && rightInput === 0) return;
+        const moving = forwardInput !== 0 || rightInput !== 0;
+        const sprinting = this.movementKeys.ShiftLeft || this.movementKeys.ShiftRight;
+        if (this.characterPlayMode) this.setCharacterPlayAnimation(moving, sprinting);
+        if (!moving) return;
 
         this.camera.getWorldDirection(this.tempMoveForward);
         this.tempMoveForward.y = 0;
@@ -4292,8 +4914,7 @@ export class TerrainScene {
         if (this.tempMoveDelta.lengthSq() < 1e-8) return;
         this.tempMoveDelta.normalize();
 
-        const sprint = this.movementKeys.ShiftLeft || this.movementKeys.ShiftRight;
-        const speed = TERRAIN_CAMERA_MOVE_SPEED * (sprint ? TERRAIN_CAMERA_SPRINT_MULTIPLIER : 1);
+        const speed = TERRAIN_CAMERA_MOVE_SPEED * (sprinting ? TERRAIN_CAMERA_SPRINT_MULTIPLIER : 1);
         this.tempMoveDelta.multiplyScalar(speed * deltaSeconds);
 
         this.camera.position.add(this.tempMoveDelta);
@@ -4301,6 +4922,67 @@ export class TerrainScene {
         this.updateCoordinateInputs(this.controls.target.x, this.controls.target.z);
         this.scheduleCameraChangedEmit();
         this.minimapNeedsRedraw = true;
+    }
+
+    private updateCharacterClickMovement(deltaSeconds: number): void {
+            if (!this.characterPlayGroup || !this.characterPlayDestination) {
+                this.setCharacterPlayAnimation(false, false);
+                return;
+            }
+
+            this.tempMoveDelta.copy(this.characterPlayDestination).sub(this.characterPlayPosition);
+            this.tempMoveDelta.y = 0;
+            const distance = this.tempMoveDelta.length();
+            if (distance < 20) {
+                this.characterPlayPosition.copy(this.characterPlayDestination);
+                this.characterPlayPosition.y = this.getTerrainWorldHeight(
+                    this.characterPlayPosition.x,
+                    this.characterPlayPosition.z,
+                );
+                this.characterPlayGroup.position.copy(this.characterPlayPosition);
+                this.characterPlayDestination = null;
+                this.setCharacterPlayAnimation(false, false);
+                return;
+            }
+
+            this.tempMoveDelta.normalize();
+            this.setCharacterPlayAnimation(true, false);
+            const step = Math.min(distance, this.characterPlaySpeed * deltaSeconds);
+            const nextPosition = this.characterPlayPosition.clone().addScaledVector(this.tempMoveDelta, step);
+            nextPosition.x = THREE.MathUtils.clamp(nextPosition.x, 0, TERRAIN_WORLD_SIZE);
+            nextPosition.z = THREE.MathUtils.clamp(nextPosition.z, 0, TERRAIN_WORLD_SIZE);
+            if (this.isCharacterTileBlocked(nextPosition.x, nextPosition.z)) {
+                this.characterPlayDestination = null;
+                this.setCharacterPlayAnimation(false, false);
+                this.setCharacterPlayStatus('Movement stopped by an ATT blocked area.');
+                return;
+            }
+            nextPosition.y = this.getTerrainWorldHeight(nextPosition.x, nextPosition.z);
+            this.characterPlayPosition.copy(nextPosition);
+            this.characterPlayGroup.position.copy(nextPosition);
+            this.setCharacterPlayFacing(this.tempMoveDelta);
+            this.camera.position.copy(nextPosition).add(this.characterPlayCameraOffset);
+            this.controls.target.set(nextPosition.x, nextPosition.y + 100, nextPosition.z);
+            this.scheduleCameraChangedEmit();
+            this.minimapNeedsRedraw = true;
+    }
+
+    private isCharacterTileBlocked(worldX: number, worldZ: number): boolean {
+        if (!this.loadedAttData) return false;
+        const tileX = THREE.MathUtils.clamp(Math.floor(worldX / TERRAIN_SCALE), 0, TERRAIN_SIZE - 1);
+        const tileZ = THREE.MathUtils.clamp(Math.floor((TERRAIN_WORLD_SIZE - worldZ) / TERRAIN_SCALE), 0, TERRAIN_SIZE - 1);
+        const flags = this.loadedAttData.terrainWall[tileZ * TERRAIN_SIZE + tileX] || 0;
+        return (flags & (TWFlags.NoMove | TWFlags.NoGround)) !== 0;
+    }
+
+    private getTerrainWorldHeight(worldX: number, worldZ: number): number {
+        if (!this.terrainMesh) return 0;
+        this.raycaster.set(
+            new THREE.Vector3(worldX, 10000, worldZ),
+            new THREE.Vector3(0, -1, 0),
+        );
+        const hit = this.raycaster.intersectObject(this.terrainMesh, true)[0];
+        return hit ? hit.point.y : 0;
     }
 
     private drawMinimap() {
@@ -4429,6 +5111,8 @@ export class TerrainScene {
         this.timer.update(timestamp);
         const delta = Math.min(this.timer.getDelta(), TERRAIN_MAX_DELTA_SECONDS);
         this.updateKeyboardMovement(delta);
+        this.characterPlayMixer?.update(delta);
+        this.updateCharacterPlayNameTag();
         this.controls.update();
         this.updateObjectDistanceCulling();
         this.updateAnimatedObjects(delta);

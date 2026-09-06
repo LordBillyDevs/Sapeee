@@ -35,6 +35,7 @@ interface ElectronAPI {
   readDataFile: (dataRootPath: string, relativePath: string) => Promise<{ name: string; data: ArrayBuffer } | null>;
   scanWorldFolders: (dataRootPath: string) => Promise<number[]>;
   readTerrainWorldFiles: (dataRootPath: string, worldNumber: number) => Promise<TerrainWorldFileData[]>;
+  readTerrainPlayerFiles: (dataRootPath: string) => Promise<TerrainWorldFileData[]>;
   searchTextures: (startPath: string, requiredTextures: string[]) => Promise<Record<string, string[]>>;
   readTerrainObjectOverrides: () => Promise<TerrainObjectOverridesFileData>;
   writeTerrainObjectOverrides: (data: unknown) => Promise<TerrainObjectOverridesWriteResult>;
@@ -161,7 +162,15 @@ export async function readTerrainWorldFiles(
     console.warn('readTerrainWorldFiles is only available in Electron');
     return [];
   }
+
   return window.electronAPI.readTerrainWorldFiles(dataRootPath, worldNumber);
+}
+
+export async function readTerrainPlayerFiles(dataRootPath: string): Promise<TerrainWorldFileData[]> {
+  if (!isElectron() || !window.electronAPI) {
+    return [];
+  }
+  return window.electronAPI.readTerrainPlayerFiles(dataRootPath);
 }
 
 /**

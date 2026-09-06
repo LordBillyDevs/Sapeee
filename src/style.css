@@ -43,9 +43,9 @@ body {
 
 /* This build is dedicated to world editing; other legacy workspaces stay out
    of the navigation while their shared runtime remains available. */
-.top-bar .tab-btn:not([data-view="terrain"]),
-.sidebar-content > .sidebar-view:not(#sidebar-terrain),
-.main-content.view:not(#view-terrain) {
+.top-bar .tab-btn:not([data-view="terrain"]):not([data-view="character"]),
+.sidebar-content > .sidebar-view:not(#sidebar-terrain):not(#sidebar-character),
+.main-content.view:not(#view-terrain):not(#view-character) {
   display: none !important;
 }
 
@@ -503,6 +503,27 @@ body::before {
   letter-spacing: 0.13em;
   color: var(--text-muted);
   font-weight: 700;
+}
+
+.world-data-brand {
+  display: flex;
+  justify-content: center;
+  margin: -0.15rem 0 0.75rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.7rem;
+  background: radial-gradient(circle at center, rgba(255, 37, 156, 0.18), rgba(6, 10, 18, 0.08) 72%);
+}
+
+.world-data-brand img {
+  display: block;
+  width: min(100%, 190px);
+  height: 72px;
+  object-fit: contain;
+  object-position: center;
+}
+
+.terrain-sidebar-brand {
+  margin: 0 0 0.8rem;
 }
 
 .control-section[data-menu-enhanced='true'] {
@@ -1111,6 +1132,48 @@ input[type='color'] {
   margin: 0;
   font-size: 0.78rem;
   color: var(--text-muted);
+}
+
+.terrain-zone-editor {
+    display: grid;
+    gap: 6px;
+    max-height: 260px;
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.terrain-zone-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
+    align-items: center;
+}
+
+.terrain-zone-row input[type='color'] {
+    width: 34px;
+    height: 28px;
+    padding: 2px;
+    border: var(--border-light);
+    border-radius: 6px;
+    background: var(--bg-card);
+}
+
+.terrain-library-item {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 7px 9px;
+    border: var(--border-light);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+}
+
+.terrain-library-item:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
 }
 
 .control-note.accent-note {

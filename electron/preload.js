@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Read all files from World{N} and Object{N}
   readTerrainWorldFiles: (dataRootPath, worldNumber) => ipcRenderer.invoke('fs:readTerrainWorldFiles', dataRootPath, worldNumber),
+  readTerrainPlayerFiles: (dataRootPath) => ipcRenderer.invoke('fs:readTerrainPlayerFiles', dataRootPath),
 
   // Search for textures in directory and subdirectories
   searchTextures: (startPath, requiredTextures) => ipcRenderer.invoke('fs:searchTextures', startPath, requiredTextures),
