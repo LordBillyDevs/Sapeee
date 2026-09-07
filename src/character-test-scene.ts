@@ -838,7 +838,7 @@ export class CharacterTestScene {
   }
 
   private async loadItemDatabase(): Promise<boolean> {
-    const file = await this.readDataFile('Local/item.bmd');
+    const file = await this.readFirstDataFile(['Local/Eng/item.bmd', 'Local/item.bmd']);
     if (!file) return false;
 
     this.itemDefinitions = parseItemBmd(file.buffer)
@@ -852,6 +852,16 @@ export class CharacterTestScene {
     this.populateItemSelects();
     this.emitStateChanged();
     return true;
+  }
+
+  private async readFirstDataFile(
+    relativePaths: string[],
+  ): Promise<{ name: string; buffer: ArrayBuffer } | null> {
+    for (const relativePath of relativePaths) {
+      const file = await this.readDataFile(relativePath);
+      if (file) return file;
+    }
+    return null;
   }
 
   private populateItemSelects() {
@@ -888,6 +898,57 @@ export class CharacterTestScene {
     this.fillSelect(this.rightWeaponSelect, weapons, 'None');
 
     this.fillSelect(this.wingSelect, sortItems(groups.get(12)), 'None');
+    this.applyLordBillyLoadout();
+  }
+
+  private applyLordBillyLoadout(): void {
+    const findMageLegendary = (group: number): ItemDefinition | null =>
+      this.itemDefinitions
+        .filter(item => item.group === group)
+        .find(item =>
+          item.id === 254
+          && /mage\s+legendary/i.test(item.itemName)
+          && /male121(?:_mage)?\.bmd$/i.test(item.modelName),
+        )
+      ?? this.itemDefinitions
+        .filter(item => item.group === group)
+        .find(item => /mage\s+legendary/i.test(item.itemName));
+    const pieces = [
+      [this.helmSelect, 7],
+      [this.armorSelect, 8],
+      [this.pantsSelect, 9],
+      [this.glovesSelect, 10],
+      [this.bootsSelect, 11],
+    ] as const;
+    pieces.forEach(([select, group]) => {
+      const item = findMageLegendary(group);
+      if (item) select.value = `${item.group}:${item.id}`;
+    });
+    const mageWings = this.itemDefinitions
+      .filter(item => {
+        const name = `${item.itemName} ${item.modelName} ${item.modelFolder}`;
+        return item.group === 12
+          && item.id === 4
+          && /wing05\.bmd$/i.test(item.modelName)
+          && /soul/i.test(name)
+          && !/satan|storm|chaos|illusion|eros|despair|unity|raven|dragon/i.test(name);
+      })
+      .sort((left, right) => {
+        const leftName = `${left.itemName} ${left.modelName}`.toLowerCase();
+        const rightName = `${right.itemName} ${right.modelName}`.toLowerCase();
+        const leftExact = /wings?\s*(?:of\s*)?dimension/.test(leftName) ? 0 : 1;
+        const rightExact = /wings?\s*(?:of\s*)?dimension/.test(rightName) ? 0 : 1;
+        return leftExact - rightExact || right.id - left.id;
+      });
+    const tierThreeWings = mageWings[0] || this.itemDefinitions.find(item =>
+      item.group === 12
+      && /soul/i.test(item.itemName)
+      && /wing05\.bmd$/i.test(item.modelName),
+    );
+    if (tierThreeWings) this.wingSelect.value = `${tierThreeWings.group}:${tierThreeWings.id}`;
+    this.itemLevel = 13;
+    this.itemLevelSlider.value = '13';
+    this.itemLevelValueEl.textContent = '+13';
   }
 
   private fillSelect(select: HTMLSelectElement, items: ItemDefinition[], noneLabel: string) {

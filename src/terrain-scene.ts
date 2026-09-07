@@ -49,13 +49,18 @@ import { readOBJ, type OBJData, type MapObject } from './terrain/formats/OBJRead
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { convertOzjToDataUrl } from './ozj-loader';
 import { BMDLoader } from './bmd-loader';
+import { parseItemBmd, type ItemDefinition } from './item-bmd';
+import { resolveAttachmentBoneByBmdIndex } from './utils/CharacterAttachmentBones';
 import {
     createFileFromElectronData,
     isElectron,
     openDirectoryDialog,
+    readFileFromPath,
     readTerrainObjectOverrides,
     readTerrainWorldFiles,
     readTerrainPlayerFiles,
+    readDataFileFromRoot,
+    searchTextures,
     scanWorldFolders,
     writeFileInDirectory,
     writeTerrainObjectOverrides,
@@ -346,6 +351,7 @@ export class TerrainScene {
     private characterPlayGroup: THREE.Group | null = null;
     private characterPlayNameTag: THREE.Sprite | null = null;
     private characterPlayMixer: THREE.AnimationMixer | null = null;
+    private characterPlayItemMixers: THREE.AnimationMixer[] = [];
     private characterPlayAction: THREE.AnimationAction | null = null;
     private characterPlayIdleAction: THREE.AnimationAction | null = null;
     private characterPlayMoveAction: THREE.AnimationAction | null = null;
@@ -364,6 +370,10 @@ export class TerrainScene {
     private characterPlayCameraOffset = new THREE.Vector3(0, 900, 900);
     private characterPlayStatusEl: HTMLElement | null = null;
     private characterPlayExitBtn: HTMLButtonElement | null = null;
+    private characterPlayAnimationSelect: HTMLSelectElement | null = null;
+    private characterPlayItemSelects = new Map<number, HTMLSelectElement>();
+    private characterPlayItemSelections = new Map<number, string>();
+    private characterPlayManualAnimation = false;
     private characterPlayAnimationSpeed = CHARACTER_PLAY_ANIMATION_SPEED;
 
     constructor() {
@@ -420,6 +430,7 @@ export class TerrainScene {
                 /(?:^|\/)player\/player\.bmd$/i.test(key),
             );
         }
+        await this.populateCharacterPlayItemSelectors();
         const baseEntry = [...this.dataFiles.entries()].find(([key]) =>
             /(?:^|\/)player\/armorclass01\.bmd$/i.test(key),
         ) ?? [...this.dataFiles.entries()].find(([key]) =>
@@ -450,6 +461,7 @@ export class TerrainScene {
             this.characterPlayBmdBones = group.userData.bmdBones as THREE.Bone[] | undefined ?? null;
             this.characterPlayBindMatrix = this.findCharacterBindMatrix(group);
             await this.loadCharacterParts(group);
+            await this.loadCharacterPlayLordBillySet(group);
             const playerAnimationEntry = playerEntry;
             if (this.characterPlaySkeleton && playerAnimationEntry) {
                 const animationLoader = new BMDLoader();
@@ -465,6 +477,7 @@ export class TerrainScene {
             this.characterPlayMixer = group.animations.length > 0
                 ? new THREE.AnimationMixer(group)
                 : null;
+            this.populateCharacterPlayAnimationSelect(group.animations);
             const findCharacterAction = (actionId: number): THREE.AnimationAction | null => {
                 const clip = group.animations.find(candidate =>
                     (candidate.userData as { actionIndex?: number } | undefined)?.actionIndex === actionId
@@ -529,6 +542,92 @@ export class TerrainScene {
         if (this.statusEl && message.includes('failed')) this.statusEl.textContent = message;
     }
 
+    private populateCharacterPlayAnimationSelect(animations: THREE.AnimationClip[]): void {
+        const select = this.characterPlayAnimationSelect;
+        if (!select) return;
+        select.replaceChildren();
+        animations.forEach((clip, index) => {
+            const option = document.createElement('option');
+            const actionIndex = (clip.userData as { actionIndex?: number } | undefined)?.actionIndex;
+            option.value = String(index);
+            option.textContent = actionIndex === undefined
+                ? `${clip.name} (${index})`
+                : `Action ${actionIndex} - ${clip.name}`;
+            select.appendChild(option);
+        });
+        select.value = '';
+        this.characterPlayManualAnimation = false;
+    }
+
+    private playCharacterPlayAnimation(index: number): void {
+        const clip = this.characterPlayGroup?.animations[index];
+        if (!clip || !this.characterPlayMixer) return;
+        this.characterPlayMixer.stopAllAction();
+        this.characterPlayMixer
+            .clipAction(clip)
+            .reset()
+            .setEffectiveWeight(1)
+            .setLoop(THREE.LoopRepeat, Infinity)
+            .setEffectiveTimeScale(this.characterPlayAnimationSpeed)
+            .play();
+        this.characterPlayAction = this.characterPlayMixer.clipAction(clip);
+        this.characterPlayManualAnimation = true;
+        this.characterPlayDestination = null;
+        this.setCharacterPlayStatus(`Playing ${clip.name}.`);
+    }
+
+    private async getCharacterPlayItemFile(): Promise<File | null> {
+        const existing = [...this.dataFiles.entries()]
+            .find(([key]) => /(?:^|\/)local\/(?:eng\/)?item\.bmd$/i.test(key))?.[1];
+        if (existing) return existing;
+        if (!this.dataRootPath || !isElectron()) return null;
+        for (const relativePath of ['Local/Eng/item.bmd', 'Local/item.bmd']) {
+            const loaded = await readDataFileFromRoot(this.dataRootPath, relativePath);
+            if (loaded) return createFileFromElectronData(loaded.name, loaded.data);
+        }
+        return null;
+    }
+
+    private async populateCharacterPlayItemSelectors(): Promise<void> {
+        const itemFile = await this.getCharacterPlayItemFile();
+        if (!itemFile) return;
+        const items = parseItemBmd(await itemFile.arrayBuffer())
+            .filter(item => item.modelPath)
+            .filter(item => [7, 8, 9, 10, 11, 12].includes(item.group));
+        const groups: Array<[number, string]> = [
+            [7, 'terrain-character-helm-select'],
+            [8, 'terrain-character-armor-select'],
+            [9, 'terrain-character-pants-select'],
+            [10, 'terrain-character-gloves-select'],
+            [11, 'terrain-character-boots-select'],
+            [12, 'terrain-character-wings-select'],
+        ];
+        for (const [group, elementId] of groups) {
+            const select = document.getElementById(elementId) as HTMLSelectElement | null;
+            if (!select) continue;
+            this.characterPlayItemSelects.set(group, select);
+            select.replaceChildren();
+            const groupItems = items.filter(item => item.group === group);
+            for (const item of groupItems) {
+                const option = document.createElement('option');
+                option.value = `${item.group}:${item.id}`;
+                option.textContent = `${item.itemName || item.modelName} (ID ${item.id})`;
+                select.appendChild(option);
+            }
+            const preferredId = group === 12 ? 4 : 254;
+            const preferred = groupItems.find(item => item.id === preferredId);
+            if (preferred) select.value = `${group}:${preferred.id}`;
+            this.characterPlayItemSelections.set(group, select.value);
+            if (select.dataset.characterLoadoutBound !== 'true') {
+                select.dataset.characterLoadoutBound = 'true';
+                select.addEventListener('change', () => {
+                    this.characterPlayItemSelections.set(group, select.value);
+                    if (this.characterPlayMode) void this.enterCharacterPlayMode();
+                });
+            }
+        }
+    }
+
     private disposeCharacterPlayGroup(): void {
         if (this.characterPlayGroup) {
             if (this.characterPlayNameTag) {
@@ -543,11 +642,16 @@ export class TerrainScene {
         this.characterPlayGroup = null;
         this.characterPlayNameTag = null;
         this.characterPlayMixer = null;
+        this.characterPlayItemMixers.forEach(mixer => {
+            mixer.stopAllAction();
+        });
+        this.characterPlayItemMixers = [];
         this.characterPlayAction = null;
         this.characterPlayIdleAction = null;
         this.characterPlayMoveAction = null;
         this.characterPlayClickAction = null;
         this.characterPlayRunAction = null;
+        this.characterPlayManualAnimation = false;
         this.characterPlaySkeleton = null;
         this.characterPlayBmdBones = null;
         this.characterPlayBindMatrix = null;
@@ -683,7 +787,209 @@ export class TerrainScene {
         }
     }
 
+            private async loadCharacterPlayLordBillySet(root: THREE.Group): Promise<void> {
+                if (!this.characterPlaySkeleton) return;
+                let itemFile = [...this.dataFiles.entries()]
+                    .find(([key]) => /(?:^|\/)local\/(?:eng\/)?item\.bmd$/i.test(key))?.[1] ?? null;
+                if (!itemFile && this.dataRootPath && isElectron()) {
+                    for (const relativePath of ['Local/Eng/item.bmd', 'Local/item.bmd']) {
+                        const itemData = await readDataFileFromRoot(this.dataRootPath, relativePath);
+                        if (itemData) {
+                            itemFile = createFileFromElectronData(itemData.name, itemData.data);
+                            break;
+                        }
+                    }
+                }
+                if (!itemFile) return;
+                const items = parseItemBmd(await itemFile.arrayBuffer()).filter(item => item.modelPath);
+                const findMageLegendary = (group: number): ItemDefinition | undefined =>
+                    items
+                        .filter(item => item.group === group)
+                        .find(item =>
+                            item.id === 254
+                            && /mage\s+legendary/i.test(item.itemName)
+                            && /male121(?:_mage)?\.bmd$/i.test(item.modelName),
+                        )
+                    ?? items
+                        .filter(item => item.group === group)
+                        .find(item => /mage\s+legendary/i.test(item.itemName));
+                const selectedItems = [7, 8, 9, 10, 11, 12]
+                    .map(group => {
+                        const selection = this.characterPlayItemSelections.get(group)
+                            ?? this.characterPlayItemSelects.get(group)?.value;
+                        if (selection) {
+                            const [selectedGroup, selectedId] = selection.split(':').map(Number);
+                            const selected = items.find(item =>
+                                item.group === selectedGroup && item.id === selectedId,
+                            );
+                            if (selected) return selected;
+                        }
+                        return group === 12 ? undefined : findMageLegendary(group);
+                    });
+                const armorItems = selectedItems
+                    .slice(0, 5)
+                    .filter((item): item is ItemDefinition => item !== undefined);
+                const mageWings = items
+                    .filter(item => {
+                        const name = `${item.itemName} ${item.modelName} ${item.modelFolder}`;
+                        return item.group === 12
+                            && item.id === 4
+                            && /wing05\.bmd$/i.test(item.modelName)
+                            && /soul/i.test(name)
+                            && !/satan|storm|chaos|illusion|eros|despair|unity|raven|dragon/i.test(name);
+                    })
+                    .sort((left, right) => {
+                        const leftName = `${left.itemName} ${left.modelName}`.toLowerCase();
+                        const rightName = `${right.itemName} ${right.modelName}`.toLowerCase();
+                        const leftExact = /wings?\s*(?:of\s*)?dimension/.test(leftName) ? 0 : 1;
+                        const rightExact = /wings?\s*(?:of\s*)?dimension/.test(rightName) ? 0 : 1;
+                        return leftExact - rightExact || right.id - left.id;
+                    });
+                const wing = selectedItems[5]
+                    ?? mageWings[0]
+                    ?? items.find(item =>
+                        item.group === 12
+                        && /soul/i.test(item.itemName)
+                        && /wing05\.bmd$/i.test(item.modelName),
+                    );
+                for (const item of armorItems) {
+                    const candidates = [
+                        `Data/Item/${item.modelName}`,
+                        item.modelPath,
+                        `Item/${item.modelName}`,
+                    ];
+                    const part = await this.loadCharacterPlayItem(candidates);
+                    if (!part) continue;
+                    const meshes: THREE.SkinnedMesh[] = [];
+                    part.traverse(object => {
+                        if ((object as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(object as THREE.SkinnedMesh);
+                    });
+                    for (const mesh of meshes) {
+                        mesh.position.set(0, 0, 0);
+                        mesh.rotation.set(0, 0, 0);
+                        mesh.scale.set(1, 1, 1);
+                        root.add(mesh);
+                        mesh.bind(this.characterPlaySkeleton, this.characterPlayBindMatrix ?? mesh.bindMatrix);
+                    }
+                }
+                if (wing) {
+                    const wingGroup = await this.loadCharacterPlayItem([
+                        `Data/Item/${wing.modelName}`,
+                        wing.modelPath,
+                        `Item/${wing.modelName}`,
+                    ]);
+                    const bone = resolveAttachmentBoneByBmdIndex(
+                        this.characterPlaySkeleton.bones,
+                        this.characterPlayBmdBones,
+                        47,
+                    );
+                    if (wingGroup && bone) {
+                        wingGroup.position.set(0, 0, 0);
+                        wingGroup.rotation.set(0, 0, 0);
+                        wingGroup.scale.set(1, 1, 1);
+                        bone.add(wingGroup);
+                        if (wingGroup.animations.length > 0) {
+                            const mixer = new THREE.AnimationMixer(wingGroup);
+                            const action = mixer.clipAction(wingGroup.animations[0]);
+                            action
+                                .setLoop(THREE.LoopRepeat, Infinity)
+                                .setEffectiveTimeScale(this.characterPlayAnimationSpeed)
+                                .play();
+                            this.characterPlayItemMixers.push(mixer);
+                        }
+                    }
+                }
+            }
+
+            private async loadCharacterPlayItem(candidates: string[]): Promise<THREE.Group | null> {
+                for (const candidate of candidates) {
+                    const normalized = candidate.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+                    const file = [...this.dataFiles.entries()].find(([key]) =>
+                        key === normalized || key.endsWith(`/${normalized}`),
+                    )?.[1];
+                    if (!file) {
+                        if (!this.dataRootPath || !isElectron()) continue;
+                        const loaded = await readDataFileFromRoot(
+                            this.dataRootPath,
+                            candidate.toLowerCase().endsWith('.bmd') ? candidate : `${candidate}.bmd`,
+                        ) ?? await readDataFileFromRoot(
+                            this.dataRootPath,
+                            candidate.replace(/^item\//i, 'Item/'),
+                        );
+                        if (!loaded) continue;
+                        const modelFile = createFileFromElectronData(loaded.name, loaded.data);
+                        const assetFiles = await this.loadCharacterPlayTextures(
+                            modelFile,
+                            candidate,
+                        );
+                        const group = await loadTerrainObjectPreview(modelFile, assetFiles);
+                        group.traverse(object => {
+                            object.visible = true;
+                            object.frustumCulled = false;
+                        });
+                        return group;
+                    }
+                    const group = await loadTerrainObjectPreview(file, this.dataFiles);
+                    group.traverse(object => {
+                        object.visible = true;
+                        object.frustumCulled = false;
+                    });
+                    return group;
+                }
+                return null;
+            }
+
+            private async loadCharacterPlayTextures(
+                modelFile: File,
+                modelPath: string,
+            ): Promise<Map<string, File>> {
+                const files = new Map(this.dataFiles);
+                if (!this.dataRootPath || !isElectron()) return files;
+
+                const { requiredTextures } = await new BMDLoader().load(await modelFile.arrayBuffer());
+                const modelDirectory = modelPath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+                const textureBases = requiredTextures.map(texture =>
+                    (texture.replace(/\\/g, '/').split('/').pop() ?? texture)
+                        .replace(/\.[^.]+$/, '')
+                        .toLowerCase(),
+                );
+                const searchedTextures = await searchTextures(this.dataRootPath, textureBases);
+                for (const paths of Object.values(searchedTextures)) {
+                    const texturePath = paths[0];
+                    if (!texturePath) continue;
+                    const loaded = await readFileFromPath(texturePath);
+                    if (!loaded) continue;
+                    const file = createFileFromElectronData(loaded.name, loaded.data);
+                    files.set(texturePath.toLowerCase(), file);
+                    files.set(loaded.name.toLowerCase(), file);
+                }
+                for (const texture of requiredTextures) {
+                    const textureName = texture.replace(/\\/g, '/').replace(/^\/+/, '');
+                    const baseName = textureName.split('/').pop() ?? textureName;
+                    const candidates = [
+                        textureName,
+                        `${modelDirectory}/${textureName}`,
+                        `${modelDirectory}/${baseName}`,
+                        `Item/${textureName}`,
+                        `Item/${baseName}`,
+                        `Data/Item/${textureName}`,
+                        `Data/Item/${baseName}`,
+                        `Player/${textureName}`,
+                        `Player/${baseName}`,
+                    ];
+                    for (const candidate of candidates) {
+                        const loaded = await readDataFileFromRoot(this.dataRootPath, candidate);
+                        if (!loaded) continue;
+                        const file = createFileFromElectronData(loaded.name, loaded.data);
+                        files.set(candidate.toLowerCase(), file);
+                        files.set(loaded.name.toLowerCase(), file);
+                        break;
+                    }
+                }
+                return files;
+            }
     private setCharacterPlayAnimation(moving: boolean, sprinting: boolean): void {
+        if (this.characterPlayManualAnimation) return;
         const nextAction = moving ? this.characterPlayClickAction : this.characterPlayIdleAction;
         if (!nextAction || nextAction === this.characterPlayAction) return;
         this.characterPlayMixer?.stopAllAction();
@@ -1492,6 +1798,11 @@ export class TerrainScene {
         this.terrainGridEl = document.getElementById('terrain-grid-enabled') as HTMLInputElement | null;
         this.characterPlayStatusEl = document.getElementById('terrain-character-test-status');
         this.characterPlayExitBtn = document.getElementById('terrain-character-exit-btn') as HTMLButtonElement | null;
+        this.characterPlayAnimationSelect = document.getElementById('terrain-character-animation-select') as HTMLSelectElement | null;
+        this.characterPlayAnimationSelect?.addEventListener('change', () => {
+            const index = Number(this.characterPlayAnimationSelect?.value);
+            if (Number.isInteger(index)) this.playCharacterPlayAnimation(index);
+        });
         this.initializeZoneEditor();
         this.bindAdvancedMapTools();
         this.attFlagEls.clear();
@@ -5112,6 +5423,7 @@ export class TerrainScene {
         const delta = Math.min(this.timer.getDelta(), TERRAIN_MAX_DELTA_SECONDS);
         this.updateKeyboardMovement(delta);
         this.characterPlayMixer?.update(delta);
+        this.characterPlayItemMixers.forEach(mixer => mixer.update(delta));
         this.updateCharacterPlayNameTag();
         this.controls.update();
         this.updateObjectDistanceCulling();
